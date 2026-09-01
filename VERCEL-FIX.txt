@@ -1,6 +1,0 @@
-HLL COMMAND CENTER - VERCEL FIX
-
-Deze versie bevat een npm allowScripts-configuratie voor esbuild.
-Vercel kan met recente npm-versies dependency install-scripts standaard blokkeren; esbuild gebruikt zo'n install script. Deze configuratie staat esbuild expliciet toe.
-
-Na upload naar GitHub: in Vercel kies Redeploy voor de nieuwste commit.
