@@ -108,7 +108,7 @@ function useClanStore(user){
     if(stateError) throw stateError;
     setClan({id:clanRow.id,name:clanRow.name,tag:clanRow.tag,role:'commander',callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'}); setData(seed); setNeedsOnboarding(false);
   }
-  return {data,setData,clan,loading,error,needsOnboarding,createClan};
+  return {data,setData,clan,setClan,loading,error,needsOnboarding,createClan};
 }
 
 function useAuth(){
@@ -167,6 +167,7 @@ function Profile({user,clan,store}){
       const {error:userError}=await supabase.auth.updateUser({data:{name:value}}); if(userError) throw userError;
       const {error:profileError}=await supabase.from('profiles').update({display_name:value,updated_at:new Date().toISOString()}).eq('id',user.id); if(profileError) throw profileError;
       const {error:memberError}=await supabase.from('clan_members').update({callsign:value}).eq('clan_id',clan.id).eq('user_id',user.id); if(memberError) throw memberError;
+      store.setClan?.(current=>current ? {...current,callsign:value} : current);
       setMessage('In-game name saved.');
     }catch(err){setError(err.message || 'Could not save your in-game name.');} finally{setBusy(false)}
   }
