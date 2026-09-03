@@ -67,11 +67,11 @@ function useClanStore(user){
       setLoading(true);
       const {data:member,error:memberError}=await supabase
         .from('clan_members')
-        .select('clan_id,role,clans(id,name,tag)')
+        .select('clan_id,role,callsign,clans(id,name,tag)')
         .eq('user_id',user.id).eq('active',true).limit(1).maybeSingle();
       if(memberError){ if(!cancelled){setError(memberError.message);setLoading(false);} return; }
       if(!member){ if(!cancelled){setNeedsOnboarding(true);setLoading(false);} return; }
-      const clanInfo={id:member.clan_id,name:member.clans?.name||'Clan',tag:member.clans?.tag||'',role:member.role};
+      const clanInfo={id:member.clan_id,name:member.clans?.name||'Clan',tag:member.clans?.tag||'',role:member.role,callsign:member.callsign||user.user_metadata?.name||user.email?.split('@')[0]||'Player'};
       const {data:row,error:stateError}=await supabase.from('clan_app_state').select('data').eq('clan_id',member.clan_id).maybeSingle();
       if(stateError){ if(!cancelled){setError(stateError.message);setLoading(false);} return; }
       if(!cancelled){setClan(clanInfo);setData(row?.data || seed);setNeedsOnboarding(false);setLoading(false);}
@@ -106,7 +106,7 @@ function useClanStore(user){
     if(memberError) throw memberError;
     const {error:stateError}=await supabase.from('clan_app_state').insert({clan_id:clanRow.id,data:seed});
     if(stateError) throw stateError;
-    setClan({id:clanRow.id,name:clanRow.name,tag:clanRow.tag,role:'commander'}); setData(seed); setNeedsOnboarding(false);
+    setClan({id:clanRow.id,name:clanRow.name,tag:clanRow.tag,role:'commander',callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'}); setData(seed); setNeedsOnboarding(false);
   }
   return {data,setData,clan,loading,error,needsOnboarding,createClan};
 }
@@ -146,16 +146,32 @@ function Login(){
 }
 
 function Shell({session,store}){
-  const {data,setData,clan}=store; const [sidebar,setSidebar]=useState(false); const user=session.user || DEMO_USER;
+  const {data,setData,clan}=store; const [sidebar,setSidebar]=useState(false); const user=session.user || DEMO_USER; const displayName=clan?.callsign || user.user_metadata?.name || user.email?.split('@')[0] || DEMO_USER.display_name;
+  const navigate=useNavigate();
   async function logout(){if(supabase) await supabase.auth.signOut(); else window.location.reload()}
   return <div className="app"><aside className={sidebar?'sidebar open':'sidebar'}><div className="brand">HLL // COMMAND<small>{clan?.tag ? `${clan.tag} · ` : ''}CLAN OPERATIONS HUB</small></div><nav>{[
     ['/', 'Dashboard', Home],['/operations','Operations',Swords],['/calendar','Calendar',CalendarDays],['/roster','Roster',Users],['/strategy','Strategies',Target],['/maps','Stage Maps',MapIcon],['/briefings','Briefings',FileText],['/wiki','Clan Wiki',BookOpen],['/aar','AAR',ClipboardCheck]
-  ].map(([to,label,Icon])=><NavLink key={to} to={to} onClick={()=>setSidebar(false)} className={({isActive})=>isActive?'navitem active':'navitem'}><Icon size={17}/><span>{label}</span></NavLink>)}</nav><div className="side-bottom"><div className="online"><i/>SYSTEM ONLINE</div><div>{clan?.name || 'HLL Demo Clan'}</div><div className="muted">{supabase ? 'SUPABASE CONNECTED' : 'LOCAL DEMO MODE'}</div></div></aside><main><header className="topbar"><button className="mobile-menu" onClick={()=>setSidebar(v=>!v)}><Menu/></button><TopCrumb/><div className="top-right"><button className="iconbtn"><Bell size={16}/><em></em></button><div className="profile"><div className="avatar">{(user.user_metadata?.name||user.email||'R').slice(0,1).toUpperCase()}</div><div><b>{user.user_metadata?.name || DEMO_USER.display_name}</b><span>{DEMO_USER.role.toUpperCase()}</span></div><button className="iconbtn" onClick={logout}><LogOut size={15}/></button></div></div></header><div className="content"><Routes>
-    <Route path="/" element={<Dashboard data={data}/>}/><Route path="/operations" element={<Operations data={data} setData={setData}/>}/><Route path="/operations/:id" element={<OperationDetail data={data} setData={setData}/>}/><Route path="/calendar" element={<Calendar data={data} setData={setData}/>}/><Route path="/roster" element={<Roster data={data} setData={setData}/>}/><Route path="/strategy" element={<Strategy data={data} setData={setData}/>}/><Route path="/maps" element={<Maps data={data} setData={setData}/>}/><Route path="/briefings" element={<Briefings data={data} setData={setData}/>}/><Route path="/wiki" element={<Wiki data={data} setData={setData}/>}/><Route path="/aar" element={<AAR data={data} setData={setData}/>}/>
+  ].map(([to,label,Icon])=><NavLink key={to} to={to} onClick={()=>setSidebar(false)} className={({isActive})=>isActive?'navitem active':'navitem'}><Icon size={17}/><span>{label}</span></NavLink>)}</nav><div className="side-bottom"><div className="online"><i/>SYSTEM ONLINE</div><div>{clan?.name || 'HLL Demo Clan'}</div><div className="muted">{supabase ? 'SUPABASE CONNECTED' : 'LOCAL DEMO MODE'}</div></div></aside><main><header className="topbar"><button className="mobile-menu" onClick={()=>setSidebar(v=>!v)}><Menu/></button><TopCrumb/><div className="top-right"><button className="iconbtn"><Bell size={16}/><em></em></button><button className="profile profile-clickable" onClick={()=>navigate('/profile')} title="Edit profile"><div className="avatar">{displayName.slice(0,1).toUpperCase()}</div><div><b>{displayName}</b><span>{(clan?.role || DEMO_USER.role).toUpperCase()}</span></div></button><button className="iconbtn" onClick={logout} title="Log out"><LogOut size={15}/></button></div></header><div className="content"><Routes>
+    <Route path="/" element={<Dashboard data={data}/>}/><Route path="/operations" element={<Operations data={data} setData={setData}/>}/><Route path="/operations/:id" element={<OperationDetail data={data} setData={setData}/>}/><Route path="/calendar" element={<Calendar data={data} setData={setData}/>}/><Route path="/roster" element={<Roster data={data} setData={setData}/>}/><Route path="/strategy" element={<Strategy data={data} setData={setData}/>}/><Route path="/maps" element={<Maps data={data} setData={setData}/>}/><Route path="/briefings" element={<Briefings data={data} setData={setData}/>}/><Route path="/wiki" element={<Wiki data={data} setData={setData}/>}/><Route path="/aar" element={<AAR data={data} setData={setData}/>}/><Route path="/profile" element={<Profile user={user} clan={clan} store={store}/>}/>
   </Routes></div></main></div>
 }
 
 function TopCrumb(){const l=useLocation(); const label=l.pathname==='/'?'DASHBOARD':l.pathname.split('/')[1].toUpperCase(); return <div className="crumb">CLAN / <b>{label}</b></div>}
+
+function Profile({user,clan,store}){
+  const [name,setName]=useState(clan?.callsign || user.user_metadata?.name || user.email?.split('@')[0] || 'Player');
+  const [busy,setBusy]=useState(false); const [message,setMessage]=useState(''); const [error,setError]=useState('');
+  async function save(e){e.preventDefault(); const value=name.trim(); if(!value){setError('Enter your in-game name.');return;} setBusy(true);setMessage('');setError('');
+    try{
+      if(!supabase){ localStorage.setItem('hll-demo-callsign',value); store.setData(d=>({...d,currentPlayerName:value})); setMessage('In-game name saved.'); return; }
+      const {error:userError}=await supabase.auth.updateUser({data:{name:value}}); if(userError) throw userError;
+      const {error:profileError}=await supabase.from('profiles').update({display_name:value,updated_at:new Date().toISOString()}).eq('id',user.id); if(profileError) throw profileError;
+      const {error:memberError}=await supabase.from('clan_members').update({callsign:value}).eq('clan_id',clan.id).eq('user_id',user.id); if(memberError) throw memberError;
+      setMessage('In-game name saved.');
+    }catch(err){setError(err.message || 'Could not save your in-game name.');} finally{setBusy(false)}
+  }
+  return <><PageHead eyebrow="PERSONAL SETTINGS" title="PLAYER PROFILE" subtitle="YOUR IN-GAME IDENTITY" actions={<Link className="btn" to="/"><ArrowLeft size={15}/> BACK</Link>}/><div className="grid g2"><div className="card form"><div className="eyebrow">IDENTITY</div><h2>IN-GAME NAME</h2><p className="subtitle">This is the name your clan sees in the roster, briefings and command screens.</p><form onSubmit={save} className="stack"><label className="field"><span>CALLSIGN / IN-GAME NAME</span><input value={name} onChange={e=>setName(e.target.value)} maxLength={32} placeholder="Raven" autoComplete="off" required/></label>{error&&<div className="error">{error}</div>}{message&&<div className="success">{message}</div>}<button className="btn primary" disabled={busy}>{busy?'SAVING…':'SAVE PROFILE'} <Save size={15}/></button></form></div><div className="card brief"><div className="eyebrow">PREVIEW</div><div className="profile-preview"><div className="avatar xl">{(name.trim()||'P').slice(0,1).toUpperCase()}</div><div><h2>{name.trim()||'YOUR NAME'}</h2><div className="subtitle">{clan?.role?.toUpperCase()||'PLAYER'} · {clan?.tag||'CLAN'}</div></div></div><div className="callout">Your in-game name will be used instead of your email address throughout the clan interface.</div></div></div></>
+}
 function PageHead({eyebrow,title,subtitle,actions}){return <div className="page-head"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1><div className="subtitle">{subtitle}</div></div><div className="actions">{actions}</div></div>}
 function Stat({label,value,sub,trend}){return <div className="card stat"><div className="k">{label}</div><div className="v">{value}</div><div className={trend?'s trend':'s'}>{sub}</div></div>}
 function Tag({children,tone=''}){return <span className={`tag ${tone}`}>{children}</span>}
