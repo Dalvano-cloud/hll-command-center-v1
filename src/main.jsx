@@ -176,9 +176,91 @@ function OperationDetail({data,setData}){const {id}=useParams(); const op=data.o
 }
 function Input({label,value,onChange,placeholder}){return <label className="field"><span>{label}</span><input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}/></label>}
 
-function Calendar({data,setData}){function add(){const title=prompt('Event title?');if(!title)return;setData(d=>({...d,events:[...d.events,{id:crypto.randomUUID?.()||Math.random(),date:new Date().toISOString().slice(0,10),time:'20:00',title,type:'EVENT',meta:'Clan',status:'open',attendance:'0/0'}]}))}return <><PageHead eyebrow="SCHEDULE" title="CLAN CALENDAR" subtitle="MATCHES · TRAINING · EVENTS" actions={<button className="btn primary" onClick={add}><Plus size={15}/> ADD EVENT</button>}/><div className="calendar"><div className="weekhead">{['MON','TUE','WED','THU','FRI','SAT','SUN'].map(d=><div key={d}>{d}</div>)}</div><div className="calendar-grid">{data.events.map(e=><div className="event card" key={e.id}><div className="event-date">{e.date.slice(5)} · {e.time}</div><b>{e.title}</b><small>{e.meta}</small><div><Tag tone={e.type==='MATCH'?'red':'yellow'}>{e.type}</Tag> <Tag tone={e.status==='ready'?'green':''}>{e.attendance}</Tag></div></div>)}</div></div><div className="card section"><div className="section-head"><h3>Upcoming events</h3></div><table className="table"><thead><tr><th>DATE</th><th>EVENT</th><th>TYPE</th><th>ATTENDANCE</th><th>STATUS</th></tr></thead><tbody>{data.events.map(e=><tr key={e.id}><td>{e.date} · {e.time}</td><td><b>{e.title}</b><small>{e.meta}</small></td><td><Tag tone={e.type==='MATCH'?'red':'yellow'}>{e.type}</Tag></td><td>{e.attendance}</td><td><Tag tone={e.status==='ready'?'green':''}>{e.status.toUpperCase()}</Tag></td></tr>)}</tbody></table></div></>}
+function Calendar({data,setData}){
+  function add(){
+    const title=prompt('Event title?');
+    if(!title)return;
+    setData(d=>({...d,events:[...d.events,{id:crypto.randomUUID?.()||Math.random(),date:new Date().toISOString().slice(0,10),time:'20:00',title,type:'EVENT',meta:'Clan',status:'open',attendance:'0/0'}]}));
+  }
+  return <>
+    <PageHead eyebrow="SCHEDULE" title="CLAN CALENDAR" subtitle="MATCHES · TRAINING · EVENTS" actions={<button className="btn primary" onClick={add}><Plus size={15}/> ADD EVENT</button>}/>
+    <div className="calendar">
+      <div className="weekhead">{['MON','TUE','WED','THU','FRI','SAT','SUN'].map(d=><div key={d}>{d}</div>)}</div>
+      <div className="calendar-grid">
+        {data.events.map(e=>(
+          <div className="event card" key={e.id}>
+            <div className="event-date">{e.date.slice(5)} · {e.time}</div>
+            <b>{e.title}</b>
+            <small>{e.meta}</small>
+            <div><Tag tone={e.type==='MATCH'?'red':'yellow'}>{e.type}</Tag> <Tag tone={e.status==='ready'?'green':''}>{e.attendance}</Tag></div>
+          </div>
+        ))}
+      </div>
+    </div>
+    <div className="card section">
+      <div className="section-head"><h3>Upcoming events</h3></div>
+      <table className="table">
+        <thead><tr><th>DATE</th><th>EVENT</th><th>TYPE</th><th>ATTENDANCE</th><th>STATUS</th></tr></thead>
+        <tbody>
+          {data.events.map(e=>(
+            <tr key={e.id}>
+              <td>{e.date} · {e.time}</td>
+              <td><b>{e.title}</b><small>{e.meta}</small></td>
+              <td><Tag tone={e.type==='MATCH'?'red':'yellow'}>{e.type}</Tag></td>
+              <td>{e.attendance}</td>
+              <td><Tag tone={e.status==='ready'?'green':''}>{e.status.toUpperCase()}</Tag></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </>;
+}
 
-function Roster({data,setData,embedded=false}){const [filter,setFilter]=useState(''); const [newName,setNewName]=useState(''); const filtered=data.players.filter(p=>`${p.name} ${p.squad} ${p.role}`.toLowerCase().includes(filter.toLowerCase())); function add(){if(!newName.trim())return;setData(d=>({...d,players:[...d.players,{id:crypto.randomUUID?.()||Math.random(),name:newName.trim(),squad:'Echo',role:'Rifleman',status:'ready'}]}));setNewName('')} const squads=[...new Set(data.players.map(p=>p.squad))].map(s=>{const a=data.players.filter(p=>p.squad===s);return {s,ready:a.filter(p=>p.status==='ready').length,total:a.length}});return <div className={embedded?'embedded':''}>{!embedded&&<PageHead eyebrow="PERSONNEL" title="ROSTER & SQUADS" subtitle="ASSIGN PLAYERS, ROLES AND READINESS" actions={<button className="btn primary" onClick={add}><Plus size={15}/> ADD PLAYER</button>}/>}<div className="grid g2"><div className="card"><div className="toolbar"><div className="search"><Search size={14}/><input value={filter} onChange={e=>setFilter(e.target.value)} placeholder="Search player, squad, role…"/></div><div className="add-inline"><input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Player name"/><button className="btn" onClick={add}><Plus size={14}/></button></div></div><table className="table"><thead><tr><th>PLAYER</th><th>SQUAD</th><th>ROLE</th><th>STATUS</th></tr></thead><tbody>{filtered.map(p=><tr key={p.id}><td><b>{p.name}</b></td><td>{p.squad}</td><td><Tag>{p.role}</Tag></td><td><Tag tone={p.status==='ready'?'green':'red'}>{p.status.toUpperCase()}</Tag></td></tr>)}</tbody></table></div><div className="card"><div className="section-head"><h3>Squad readiness</h3><span>LIVE</span></div><div className="side-list">{squads.map(x=><div className="row" key={x.s}><div><b>{x.s}</b><small>{x.ready}/{x.total} READY</small></div><div className="progress"><i style={{width:`${x.ready/x.total*100}%`}}/></div>)}</div></div></div></div></div>}
+function Roster({data,setData,embedded=false}){
+  const [filter,setFilter]=useState('');
+  const [newName,setNewName]=useState('');
+  const filtered=data.players.filter(p=>`${p.name} ${p.squad} ${p.role}`.toLowerCase().includes(filter.toLowerCase()));
+  function add(){
+    if(!newName.trim())return;
+    setData(d=>({...d,players:[...d.players,{id:crypto.randomUUID?.()||Math.random(),name:newName.trim(),squad:'Echo',role:'Rifleman',status:'ready'}]}));
+    setNewName('');
+  }
+  const squads=[...new Set(data.players.map(p=>p.squad))].map(s=>{
+    const a=data.players.filter(p=>p.squad===s);
+    return {s,ready:a.filter(p=>p.status==='ready').length,total:a.length};
+  });
+  return <div className={embedded?'embedded':''}>
+    {!embedded&&<PageHead eyebrow="PERSONNEL" title="ROSTER & SQUADS" subtitle="ASSIGN PLAYERS, ROLES AND READINESS" actions={<button className="btn primary" onClick={add}><Plus size={15}/> ADD PLAYER</button>}/>}
+    <div className="grid g2">
+      <div className="card">
+        <div className="toolbar">
+          <div className="search"><Search size={14}/><input value={filter} onChange={e=>setFilter(e.target.value)} placeholder="Search player, squad, role…"/></div>
+          <div className="add-inline"><input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Player name"/><button className="btn" onClick={add}><Plus size={14}/></button></div>
+        </div>
+        <table className="table">
+          <thead><tr><th>PLAYER</th><th>SQUAD</th><th>ROLE</th><th>STATUS</th></tr></thead>
+          <tbody>
+            {filtered.map(p=>(
+              <tr key={p.id}><td><b>{p.name}</b></td><td>{p.squad}</td><td><Tag>{p.role}</Tag></td><td><Tag tone={p.status==='ready'?'green':'red'}>{p.status.toUpperCase()}</Tag></td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="card">
+        <div className="section-head"><h3>Squad readiness</h3><span>LIVE</span></div>
+        <div className="side-list">
+          {squads.map(x=>(
+            <div className="row" key={x.s}>
+              <div><b>{x.s}</b><small>{x.ready}/{x.total} READY</small></div>
+              <div className="progress"><i style={{width:`${x.total?x.ready/x.total*100:0}%`}}/></div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  </div>;
+}
 
 function Strategy({data,setData,embedded=false}){const [local,setLocal]=useState(data.strategy); useEffect(()=>setLocal(data.strategy),[data.strategy]); function save(){setData(d=>({...d,strategy:local}));alert('Strategy saved to local command database.')} return <div className={embedded?'embedded':''}>{!embedded&&<PageHead eyebrow="OPERATION 042" title="STRATEGY BUILDER" subtitle="COMMANDER'S INTENT → PHASES → TASKS" actions={<button className="btn primary" onClick={save}><Save size={15}/> SAVE STRATEGY</button>}/>}<div className="grid g2"><div className="card form"><div className="form-grid"><Input label="OPERATION NAME" value={local.name} onChange={v=>setLocal(x=>({...x,name:v}))}/><Input label="COMMANDER'S INTENT" value={local.intent} onChange={v=>setLocal(x=>({...x,intent:v}))}/></div><label className="field"><span>GLOBAL ORDERS</span><textarea value={local.orders} onChange={e=>setLocal(x=>({...x,orders:e.target.value}))}/></label><div className="callout"><Target size={15}/> Every phase should map to a stage map and at least one squad task.</div></div><div className="card"><div className="section-head"><h3>Battle phases</h3><span>4 PHASES</span></div><div className="side-list">{[['01 — SETUP','Garrisons, nodes, defensive positions','green'],['02 — CONTACT','Absorb first push, identify armor','green'],['03 — ROTATE','Shift Bravo north on center pressure','yellow'],['04 — FINAL','Fallback network, counterattack on call','']].map(([a,b,t])=><div className="row" key={a}><div><b>{a}</b><small>{b}</small></div><Tag tone={t}>{t==='green'?'READY':t==='yellow'?'DRAFT':'DRAFT'}</Tag></div>)}</div></div></div><div className="card section"><div className="section-head"><h3>Squad tasks</h3><span>LINKED TO PHASES</span></div><table className="table"><thead><tr><th>SQUAD</th><th>PRIMARY TASK</th><th>PHASE</th><th>DEPENDENCY</th></tr></thead><tbody><tr><td><b>ALPHA</b></td><td>Own western sector; protect G1</td><td>01–02</td><td>Supply + fallback</td></tr><tr><td><b>BRAVO</b></td><td>Center line + armor reserve</td><td>01–04</td><td>Commander release</td></tr><tr><td><b>CHARLIE</b></td><td>Southern fallback / counterattack</td><td>02–04</td><td>G2 integrity</td></tr><tr><td><b>DELTA</b></td><td>Recon + arty coordination</td><td>01–03</td><td>Grid reporting</td></tr></tbody></table></div></div>}
 
@@ -193,3 +275,4 @@ function Wiki({data,setData}){const [q,setQ]=useState(''); const [title,setTitle
 function AAR({data,setData,embedded=false}){const [local,setLocal]=useState(data.aar);function save(){setData(d=>({...d,aar:local}));alert('AAR saved.');}return <div className={embedded?'embedded':''}>{!embedded&&<PageHead eyebrow="POST-MATCH" title="AFTER ACTION REVIEW" subtitle="CAPTURE LESSONS → IMPROVE THE NEXT OPERATION" actions={<button className="btn primary" onClick={save}><Save size={15}/> SAVE AAR</button>}/>}<div className="grid g4"><Stat label="RESULT" value={local.result} sub={local.score} trend/><Stat label="ATTENDANCE" value="24/25" sub="96%"/><Stat label="GARRISON SCORE" value="8/10" sub="GOOD"/><Stat label="COMMS" value="7/10" sub="IMPROVE"/></div><div className="grid g2 section"><div className="card form"><label className="field"><span>WHAT WORKED?</span><textarea value={local.worked} onChange={e=>setLocal(x=>({...x,worked:e.target.value}))}/></label><label className="field"><span>WHAT FAILED?</span><textarea value={local.failed} onChange={e=>setLocal(x=>({...x,failed:e.target.value}))}/></label></div><div className="card"><div className="section-head"><h3>Squad evaluation</h3></div><table className="table"><tbody>{[['Alpha','9/10','EXCELLENT','green'],['Bravo','7/10','ROTATION','yellow'],['Charlie','8/10','SOLID','green'],['Delta','6/10','COMMS','red']].map(([a,b,c,t])=><tr key={a}><td>{a}</td><td>{b}</td><td><Tag tone={t}>{c}</Tag></td></tr>)}</tbody></table></div></div></div>}
 
 createRoot(document.getElementById('root')).render(<BrowserRouter><App/></BrowserRouter>);
+
