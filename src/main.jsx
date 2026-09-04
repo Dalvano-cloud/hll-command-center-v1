@@ -310,7 +310,7 @@ function Shell({session,store}){
   return <div className="app"><aside className={sidebar?'sidebar open':'sidebar'}><div className="brand">HLL // COMMAND<small>{clan?.tag ? `${clan.tag} · ` : ''}CLAN OPERATIONS HUB</small></div><nav>{[
     ['/', 'Dashboard', Home],['/my-operation','My Operation',Radio],['/operations','Operations',Swords],['/calendar','Calendar',CalendarDays],['/roster','Roster',Users],['/members','Members',Users],['/strategy','Strategies',Target],['/maps','Stage Maps',MapIcon],['/briefings','Briefings',FileText],['/wiki','Clan Wiki',BookOpen],['/aar','AAR',ClipboardCheck]
   ].map(([to,label,Icon])=><NavLink key={to} to={to} onClick={()=>setSidebar(false)} className={({isActive})=>isActive?'navitem active':'navitem'}><Icon size={17}/><span>{label}</span></NavLink>)}</nav><div className="side-bottom"><div className="online"><i/>SYSTEM ONLINE</div><div>{clan?.name || 'HLL Demo Clan'}</div><div className="muted">{supabase ? 'SUPABASE CONNECTED' : 'LOCAL DEMO MODE'}</div></div></aside><main><header className="topbar"><button className="mobile-menu" onClick={()=>setSidebar(v=>!v)}><Menu/></button><TopCrumb/><div className="top-right"><button className="iconbtn"><Bell size={16}/><em></em></button><button className="profile profile-clickable" onClick={()=>navigate('/profile')} title="Edit profile"><div className="avatar">{displayName.slice(0,1).toUpperCase()}</div><div><b>{displayName}</b><span>{(clan?.role || DEMO_USER.role).toUpperCase()}</span></div></button><button className="iconbtn" onClick={logout} title="Log out"><LogOut size={15}/></button></div></header><div className="content"><Routes>
-    <Route path="/" element={<Dashboard data={data}/>}/><Route path="/my-operation" element={<MyOperation data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/operations" element={<Operations data={data} setData={setData} clan={clan}/>}/><Route path="/operations/:id" element={<OperationDetail data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/calendar" element={<Calendar data={data} setData={setData}/>}/><Route path="/roster" element={<Roster data={data} setData={setData}/>}/><Route path="/members" element={<Members clan={clan} user={user} data={data} setClan={store.setClan}/>}/><Route path="/strategy" element={canCommand(clan)?<Strategy data={data} setData={setData}/>:<PermissionCard clan={clan} title="STRATEGY CONTROLLED" text="Commander and CO roles can build and publish clan strategy."/>}/><Route path="/maps" element={canCommand(clan)?<Maps data={data} setData={setData}/>:<PermissionCard clan={clan} title="STAGE MAPS CONTROLLED" text="Command roles manage the tactical map workspace."/>}/><Route path="/briefings" element={canCommand(clan)?<Briefings data={data} setData={setData}/>:<PermissionCard clan={clan} title="BRIEFINGS CONTROLLED" text="Command roles publish player briefings."/>}/><Route path="/wiki" element={<Wiki data={data} setData={setData}/>}/><Route path="/aar" element={canCommand(clan)?<AAR data={data} setData={setData}/>:<PermissionCard clan={clan} title="AAR CONTROLLED" text="Command roles own the official after-action review."/>}/><Route path="/profile" element={<Profile user={user} clan={clan} store={store}/>}/>
+    <Route path="/" element={<Dashboard data={data} clan={clan}/>}/><Route path="/my-operation" element={<MyOperation data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/operations" element={<Operations data={data} setData={setData} clan={clan}/>}/><Route path="/operations/:id" element={<OperationDetail data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/calendar" element={<Calendar data={data} setData={setData}/>}/><Route path="/roster" element={<Roster data={data} setData={setData}/>}/><Route path="/members" element={<Members clan={clan} user={user} data={data} setClan={store.setClan}/>}/><Route path="/strategy" element={canCommand(clan)?<Strategy data={data} setData={setData}/>:<PermissionCard clan={clan} title="STRATEGY CONTROLLED" text="Commander and CO roles can build and publish clan strategy."/>}/><Route path="/maps" element={canCommand(clan)?<Maps data={data} setData={setData}/>:<PermissionCard clan={clan} title="STAGE MAPS CONTROLLED" text="Command roles manage the tactical map workspace."/>}/><Route path="/briefings" element={canCommand(clan)?<Briefings data={data} setData={setData}/>:<PermissionCard clan={clan} title="BRIEFINGS CONTROLLED" text="Command roles publish player briefings."/>}/><Route path="/wiki" element={<Wiki data={data} setData={setData}/>}/><Route path="/aar" element={canCommand(clan)?<AAR data={data} setData={setData}/>:<PermissionCard clan={clan} title="AAR CONTROLLED" text="Command roles own the official after-action review."/>}/><Route path="/profile" element={<Profile user={user} clan={clan} store={store}/>}/>
   </Routes></div></main></div>
 }
 
@@ -363,13 +363,78 @@ function MyOperation({data,setData,user,clan}){
   </>;
 }
 
-function Dashboard({data}){
-  const op=data.ops.find(o=>o.status==='active') || data.ops[0] || makeOperation({},0);
-  const ready=data.players.filter(p=>p.status==='ready').length;
-  const squads=[...new Set(data.players.map(p=>p.squad).filter(Boolean))];
-  const phaseReady=op.strategyData?.phases?.filter(p=>p.intent).length||0;
-  const briefingCount=Object.values(op.briefingsByPlayer||{}).filter(b=>b?.published).length;
-  return <><PageHead eyebrow={`CURRENT OPERATION // ${op.id}`} title={op.name.toUpperCase()} subtitle={`${op.date} · ${op.time} · ${op.map} · VS ${op.opponent}`} actions={<><Link className="btn" to={`/operations/${op.id}`}>OPEN OPERATION</Link><Link className="btn primary" to={`/operations/${op.id}`}>COMMAND WORKSPACE</Link></>}/><div className="grid g4"><Stat label="ATTENDANCE" value={op.attendanceByPlayer?`${Object.values(op.attendanceByPlayer).filter(v=>v==='going').length}/${Object.keys(op.attendanceByPlayer).length}`:op.attendance} sub="RESPONDED / GOING" trend/><Stat label="SQUADS" value={`${squads.length}`} sub={`${ready}/${data.players.length} PLAYERS READY`} trend/><Stat label="STRATEGY" value={`${phaseReady}/4`} sub="PHASES DEFINED" trend/><Stat label="BRIEFINGS" value={`${briefingCount}/${data.players.length}`} sub="PUBLISHED"/></div><div className="grid g2 section"><div className="card"><div className="section-head"><h3>Operation map</h3><span>LIVE WORKSPACE</span></div><TacticalMap compact/></div><div className="card"><div className="section-head"><h3>Command board</h3><span>OPERATION #{op.id}</span></div><div className="side-list"><button className="row row-button" onClick={()=>location.assign(`/operations/${op.id}`)}><div><b>01 · Player attendance</b><small>Confirm availability before squad lock</small></div><Tag tone="green">OPEN</Tag></button><button className="row row-button"><div><b>02 · Squad assignment</b><small>{op.squads?.length||0} squads configured</small></div><Tag tone="yellow">MANAGE</Tag></button><button className="row row-button"><div><b>03 · Strategy</b><small>{phaseReady}/4 phases have an intent</small></div><Tag tone={phaseReady===4?'green':'yellow'}>{phaseReady===4?'READY':'DRAFT'}</Tag></button><button className="row row-button"><div><b>04 · Individual briefings</b><small>Published briefs stay attached to this match</small></div><Tag tone={briefingCount===data.players.length?'green':'red'}>{briefingCount}/{data.players.length}</Tag></button><button className="row row-button"><div><b>05 · AAR</b><small>Complete after the match</small></div><Tag>{op.aarData?.result||'PENDING'}</Tag></button></div></div></div></>
+function Dashboard({data,clan}){
+  const op=data.ops.find(o=>o.status==='active') || data.ops[0];
+  const command=canCommand(clan);
+  const navigate=useNavigate();
+  if(!op){
+    return <><PageHead eyebrow="COMMAND CENTER" title="NO OPERATION" subtitle="CREATE THE NEXT MATCH WORKSPACE" actions={command?<Link className="btn primary" to="/operations">OPEN OPERATIONS</Link>:null}/><div className="card section empty-state"><div className="eyebrow">STANDBY</div><h2>No operation has been created yet.</h2><p className="subtitle">Once command creates the next match, this room becomes the live control board.</p></div></>;
+  }
+
+  const readiness=operationReadiness(op,data);
+  const attendance=op.attendanceByPlayer||{};
+  const players=data.players||[];
+  const responded=players.filter(p=>attendance[p.id]).length;
+  const going=players.filter(p=>attendance[p.id]==='going');
+  const maybe=players.filter(p=>attendance[p.id]==='maybe');
+  const declined=players.filter(p=>attendance[p.id]==='declined');
+  const assignedIds=new Set((op.squads||[]).flatMap(s=>s.playerIds||[]));
+  const unassigned=going.filter(p=>!assignedIds.has(p.id));
+  const briefings=op.briefingsByPlayer||{};
+  const publishedBriefings=going.filter(p=>briefings[p.id]?.published).length;
+  const phases=op.strategyData?.phases||[];
+  const activePhase=phases.find(p=>p.status==='active')||phases.find(p=>p.intent)||phases[0];
+  const squadRows=(op.squads||[]).map(s=>{
+    const members=players.filter(p=>(s.playerIds||[]).includes(p.id));
+    const ready=members.filter(p=>attendance[p.id]==='going');
+    const lead=players.find(p=>p.id===s.lead || p.memberUserId===s.lead || p.name===s.lead);
+    return { ...s, members, ready, lead };
+  });
+  const alerts=[];
+  if(responded<players.length) alerts.push({tone:'yellow',title:'Attendance incomplete',detail:`${players.length-responded} players have not responded.`});
+  if(unassigned.length) alerts.push({tone:'red',title:'Players without squads',detail:`${unassigned.length} going players still need assignment.`});
+  if(readiness.checks.find(c=>c.key==='strategy'&&!c.ok)) alerts.push({tone:'yellow',title:'Strategy not locked',detail:'Command intent, orders or phases are still incomplete.'});
+  if(publishedBriefings<going.length) alerts.push({tone:'yellow',title:'Briefings pending',detail:`${going.length-publishedBriefings} going players are missing a published briefing.`});
+  if(op.status==='draft') alerts.unshift({tone:'yellow',title:'Operation is still draft',detail:'Deployment remains manually gated by command.'});
+  const alertTone=alerts.some(a=>a.tone==='red')?'red':alerts.length?'yellow':'green';
+
+  if(!command){
+    return <><PageHead eyebrow={`PLAYER CONSOLE // OPERATION #${op.id}`} title={op.name.toUpperCase()} subtitle={`${op.map} · ${op.mode} · ${op.date} · ${op.time} · VS ${op.opponent}`} actions={<Link className="btn primary" to="/my-operation">MY OPERATION <ArrowUpRight size={14}/></Link>}/><div className="grid g4"><Stat label="ATTENDANCE" value={attendance[data.players.find(p=>p.id===data.currentPlayerId)?.id]||'PENDING'} sub="YOUR RESPONSE"/><Stat label="SQUAD" value={data.players.find(p=>p.id===data.currentPlayerId)?.squad||'UNASSIGNED'} sub="CURRENT ASSIGNMENT"/><Stat label="PHASE" value={String(activePhase?.no||1).padStart(2,'0')} sub={activePhase?.name||'SETUP'}/><Stat label="BRIEFING" value={data.players.find(p=>briefings[p.id])?'READY':'PENDING'} sub="INDIVIDUAL MISSION"/></div><div className="grid g2 section"><div className="card"><div className="section-head"><h3>Operation status</h3><span>{op.status.toUpperCase()}</span></div><div className="side-list"><div className="row"><div><b>Deployment readiness</b><small>{readiness.percent}% of command gates complete</small></div><Tag tone={alertTone}>{readiness.percent}%</Tag></div><div className="row"><div><b>Players going</b><small>{going.length} confirmed · {maybe.length} maybe · {declined.length} declined</small></div></div><div className="row"><div><b>Current phase</b><small>Phase {String(activePhase?.no||1).padStart(2,'0')} · {activePhase?.name||'SETUP'}</small></div></div></div></div><div className="card"><div className="section-head"><h3>Your mission</h3><span>PLAYER VIEW</span></div><div className="brief"><h2>{briefings[players.find(p=>p.memberUserId===undefined)?.id]?.title||'OPEN MY OPERATION'}</h2><p>Attendance, squad assignment, stage maps and your personal briefing are all available from My Operation.</p><Link className="btn primary" to="/my-operation">OPEN MY OPERATION</Link></div></div></div></>;
+  }
+
+  return <>
+    <PageHead eyebrow={`COMMAND CONTROL ROOM // OPERATION #${op.id}`} title={op.name.toUpperCase()} subtitle={`${op.map} · ${op.mode} · ${op.date} · ${op.time} · VS ${op.opponent}`} actions={<><Tag tone={op.status==='active'?'green':'yellow'}>{op.status.toUpperCase()}</Tag><Link className="btn primary" to={`/operations/${op.id}`}>OPEN COMMAND WORKSPACE <ArrowUpRight size={14}/></Link></>}/>
+    <div className="control-strip">
+      <div><span>DEPLOYMENT READINESS</span><b>{readiness.percent}%</b><div className="readiness-bar compact"><span style={{width:`${readiness.percent}%`}}/></div></div>
+      <div><span>GOING</span><b>{going.length}/{players.length}</b><small>{maybe.length} MAYBE · {declined.length} DECLINED</small></div>
+      <div><span>SQUADS</span><b>{squadRows.length}</b><small>{unassigned.length ? `${unassigned.length} UNASSIGNED` : 'ALL GOING ASSIGNED'}</small></div>
+      <div><span>BRIEFINGS</span><b>{publishedBriefings}/{going.length}</b><small>{going.length-publishedBriefings} PENDING</small></div>
+    </div>
+
+    <div className="grid control-main section">
+      <div className="control-col">
+        <div className="card">
+          <div className="section-head"><div><h3>Command alerts</h3><small>{alerts.length ? `${alerts.length} ITEMS NEED ATTENTION` : 'NO BLOCKING ITEMS'}</small></div><Tag tone={alertTone}>{alerts.length?'ACTION':'GREEN'}</Tag></div>
+          <div className="side-list">{alerts.length?alerts.map((a,i)=><div className="alert-row" key={i}><Tag tone={a.tone}>{a.tone==='red'?'BLOCK':'CHECK'}</Tag><div><b>{a.title}</b><small>{a.detail}</small></div></div>):<div className="empty-inline"><Check size={16}/><div><b>All current control checks are clear.</b><small>Keep monitoring attendance and readiness before launch.</small></div></div>}</div>
+        </div>
+        <div className="card section">
+          <div className="section-head"><div><h3>Squad readiness</h3><small>GOING PLAYERS BY ASSIGNMENT</small></div><Link className="btn" to={`/operations/${op.id}`}>MANAGE</Link></div>
+          <div className="squad-grid">{squadRows.map(s=><div className={`squad-status ${s.members.length?'filled':''}`} key={s.id}><div className="squad-top"><b>{s.name}</b><Tag tone={s.ready.length===s.members.length && s.members.length?'green':'yellow'}>{s.ready.length}/{s.members.length}</Tag></div><div className="squad-meta">{s.lead?`SL · ${s.lead.name}`:'NO SL ASSIGNED'}</div><div className="squad-members">{s.members.length?s.members.map(p=><span key={p.id} className={attendance[p.id]==='going'?'ready':''}>{p.name}</span>):<span className="muted">EMPTY SQUAD</span>}</div></div>)}</div>
+        </div>
+      </div>
+      <div className="control-col">
+        <div className="card">
+          <div className="section-head"><div><h3>Deployment gates</h3><small>WORKFLOW STATUS</small></div><Tag tone={readiness.percent===100?'green':readiness.percent>=60?'yellow':'red'}>{readiness.percent}%</Tag></div>
+          <div className="gate-list">{readiness.checks.map(c=><div className="gate-row" key={c.key}><div className={`gate-icon ${c.ok?'ok':''}`}>{c.ok?'✓':'!'}</div><div><b>{c.label}</b><small>{c.detail}</small></div><Tag tone={c.ok?'green':'yellow'}>{c.ok?'READY':'PENDING'}</Tag></div>)}</div>
+        </div>
+        <div className="card section">
+          <div className="section-head"><div><h3>Mission timeline</h3><small>COMMAND WORKFLOW</small></div><span>PHASE {String(activePhase?.no||1).padStart(2,'0')}</span></div>
+          <div className="timeline">{[['01','ATTENDANCE',`${responded}/${players.length} RESPONDED`,responded===players.length],['02','SQUADS',`${going.length-unassigned.length}/${going.length} ASSIGNED`,unassigned.length===0&&going.length>0],['03','STRATEGY',`${phases.filter(p=>p.intent&&p.tasks?.length).length}/${phases.length||4} READY`,readiness.checks.find(c=>c.key==='strategy')?.ok],['04','STAGE MAPS',`${(op.stageMaps||[]).filter(m=>(m.markers||[]).length).length}/${(op.stageMaps||[]).length||4} MAPPED`,readiness.checks.find(c=>c.key==='maps')?.ok],['05','BRIEFINGS',`${publishedBriefings}/${going.length} PUBLISHED`,publishedBriefings===going.length&&going.length>0]].map(([n,label,detail,done])=><div className="timeline-row" key={n}><span className={`timeline-dot ${done?'done':''}`}>{done?'✓':n}</span><div><b>{label}</b><small>{detail}</small></div></div>)}</div>
+        </div>
+      </div>
+    </div>
+    <div className="card section command-next"><div><div className="eyebrow">NEXT COMMAND ACTION</div><h3>{alerts[0]?.title || 'Operation is fully prepared'}</h3><p>{alerts[0]?.detail || 'All major deployment gates are green. Open the operation workspace to activate or archive the operation.'}</p></div><div className="actions"><Link className="btn" to={`/operations/${op.id}`}>OPEN WORKSPACE</Link>{op.status==='draft'&&readiness.percent===100?<Link className="btn primary" to={`/operations/${op.id}`}>ACTIVATE OPERATION</Link>:<Link className="btn primary" to={`/operations/${op.id}`}>CONTINUE COMMAND</Link>}</div></div>
+  </>;
 }
 
 function Operations({data,setData,clan}){
