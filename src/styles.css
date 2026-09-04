@@ -6,3 +6,9 @@
 .avatar.xl{width:56px;height:56px;font-size:20px}
 .profile-preview{display:flex;align-items:center;gap:16px;margin-bottom:22px}
 .success{padding:10px 12px;border:1px solid rgba(116,160,85,.5);background:rgba(116,160,85,.08);color:#9cc67a}
+.row-button{width:100%;background:transparent;border-left:0;border-right:0;border-top:0;color:inherit;text-align:left;font:inherit}.row-button:hover{background:#1b1e18}.phase-editor{margin:10px 15px 0;padding:14px 0;border-top:1px solid #292c25}.phase-editor:first-of-type{border-top:0}.phase-title{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:11px}.player-chips{display:flex;gap:6px;flex-wrap:wrap;padding-top:6px}.player-chips .tag{font-size:8px}.actions{margin-top:10px}
+
+.login-card.wide{max-width:720px}
+.auth-tabs{margin:20px 0}
+.auth-tabs button{flex:1}
+.invite-code{font-size:32px;letter-spacing:.24em;font-weight:800;margin:16px 0;text-transform:uppercase}
