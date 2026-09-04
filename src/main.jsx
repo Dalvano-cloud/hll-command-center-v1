@@ -550,81 +550,99 @@ function OperationAttendance({op,data,setData,user,clan}){
 function OperationSquads({op,data,setData,clan}){
   const manage=canManageSquads(clan);
   const squads=op.squads||[];
+  const roster=data.players.filter(p=>p.memberUserId||p.id);
+  const [selectedPlayer,setSelectedPlayer]=useState('');
+
+  function currentSquad(pid){
+    return squads.find(s=>(s.playerIds||[]).includes(pid));
+  }
 
   function assign(pid,sid){
     if(!manage)return;
+    const player=data.players.find(p=>p.id===pid);
+    const from=currentSquad(pid);
+    const to=squads.find(s=>s.id===sid);
+    const action = sid ? `${player?.name||'Player'} → ${to?.name||'Squad'}` : `${player?.name||'Player'} unassigned`;
+    const stamp={id:crypto.randomUUID?.()||Math.random().toString(36).slice(2),action,time:new Date().toISOString()};
     setData(d=>({
       ...d,
-      ops:d.ops.map(x=>x.id!==op.id?x:{...x,squads:(x.squads||[]).map(s=>({...s,playerIds:s.id===sid?[...new Set([...(s.playerIds||[]),pid])]:(s.playerIds||[]).filter(id=>id!==pid)}))})
+      ops:d.ops.map(x=>x.id!==op.id?x:{...x,
+        squads:(x.squads||[]).map(s=>({...s,playerIds:s.id===sid?[...new Set([...(s.playerIds||[]),pid])]:(s.playerIds||[]).filter(id=>id!==pid)})),
+        squadChanges:[stamp,...(x.squadChanges||[])].slice(0,20)
+      })
     }));
+    setSelectedPlayer('');
   }
 
   function addSquad(){
     if(!manage)return;
     const name=`Squad ${squads.length+1}`;
     const newSquad={id:`s${Date.now()}`,name,lead:'',playerIds:[]};
+    const stamp={id:crypto.randomUUID?.()||Math.random().toString(36).slice(2),action:`Created ${name}`,time:new Date().toISOString()};
     setData(d=>({
       ...d,
-      ops:d.ops.map(x=>x.id===op.id?{...x,squads:[...(x.squads||[]),newSquad]}:x)
+      ops:d.ops.map(x=>x.id===op.id?{...x,squads:[...(x.squads||[]),newSquad],squadChanges:[stamp,...(x.squadChanges||[])].slice(0,20)}:x)
     }));
   }
+
+  function renameSquad(sid,name){
+    if(!manage)return;
+    setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?{...x,squads:(x.squads||[]).map(q=>q.id===sid?{...q,name}:q)}:x)}));
+  }
+
+  const unassigned=roster.filter(p=>!currentSquad(p.id));
+  const going=roster.filter(p=>op.attendanceByPlayer?.[p.id]==='going');
 
   return <>
     <PageHead
       eyebrow={`OPERATION #${op.id}`}
-      title="SQUAD ASSIGNMENT"
-      subtitle="PUT EVERY PLAYER IN THE RIGHT PLACE"
-      actions={<button className="btn primary" onClick={addSquad}><Plus size={15}/> ADD SQUAD</button>}
+      title="LIVE SQUAD BOARD"
+      subtitle="FLEXIBLE ASSIGNMENTS — CHANGE ANYTIME"
+      actions={<><Tag tone="green">LIVE</Tag>{manage&&<button className="btn primary" onClick={addSquad}><Plus size={15}/> ADD SQUAD</button>}</>}
     />
 
+    <div className="callout section-callout"><AlertTriangle size={15}/><div><b>NO HARD LOCK</b><span>Last-minute swaps are expected. Changes are tracked automatically so command can see what moved and when.</span></div></div>
+
+    <div className="grid g4 section">
+      <Stat label="GOING" value={going.length} sub="CONFIRMED FOR OP" trend/>
+      <Stat label="ASSIGNED" value={going.filter(p=>currentSquad(p.id)).length} sub="GOING WITH SQUAD"/>
+      <Stat label="UNASSIGNED" value={unassigned.length} sub="READY FOR PLACEMENT"/>
+      <Stat label="SQUADS" value={squads.length} sub="ACTIVE GROUPS"/>
+    </div>
+
     <div className="grid g2">
-      {squads.map(s=>(
-        <div className="card" key={s.id}>
-          <div className="section-head"><h3>{s.name}</h3><span>{(s.playerIds||[]).length} PLAYERS</span></div>
-          <label className="field">
-            <span>SQUAD LEAD</span>
-            <select
-              value={s.lead||''}
-              onChange={e=>setData(d=>({
-                ...d,
-                ops:d.ops.map(x=>x.id===op.id?{
-                  ...x,
-                  squads:(x.squads||[]).map(q=>q.id===s.id?{...q,lead:e.target.value}:q)
-                }:x)
-              }))}
-            >
-              <option value="">Unassigned</option>
-              {data.players.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
-            </select>
-          </label>
-          <div className="player-chips">
-            {(s.playerIds||[]).map(pid=>{
-              const p=data.players.find(x=>x.id===pid);
-              return p?<Tag key={pid} tone="green">{p.name}</Tag>:null;
-            })}
-          </div>
+      <div className="card section">
+        <div className="section-head"><h3>Squads</h3><span>LIVE BOARD</span></div>
+        <div className="squad-board">
+          {squads.map(s=>{
+            const members=(s.playerIds||[]).map(pid=>data.players.find(p=>p.id===pid)).filter(Boolean);
+            return <div className="squad-card" key={s.id}>
+              <div className="squad-card-head">
+                {manage ? <input className="squad-name-input" value={s.name} onChange={e=>renameSquad(s.id,e.target.value)}/> : <b>{s.name}</b>}
+                <Tag tone="green">{members.length}</Tag>
+              </div>
+              <select value={s.lead||''} onChange={e=>setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?{...x,squads:(x.squads||[]).map(q=>q.id===s.id?{...q,lead:e.target.value}:q)}:x)}))}>
+                <option value="">Squad Lead — unassigned</option>
+                {members.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
+              </select>
+              <div className="player-list compact">
+                {members.length?members.map(p=><div className="player-row" key={p.id}><div><b>{p.name}</b><small>{p.role||'Rifleman'} · {op.attendanceByPlayer?.[p.id]||'pending'}</small></div>{manage&&<button className="mini-btn" onClick={()=>assign(p.id,'')} title="Remove from squad">×</button>}</div>):<span className="muted">No players assigned.</span>}
+              </div>
+            </div>
+          })}
+          {!squads.length&&<div className="empty">No squads yet. Add one to start planning.</div>}
         </div>
-      ))}
+      </div>
 
       <div className="card section">
-        <div className="section-head"><h3>Assign players</h3><span>ALL ROSTER</span></div>
-        <table className="table">
-          <thead><tr><th>PLAYER</th><th>CURRENT SQUAD</th><th>MOVE TO</th></tr></thead>
-          <tbody>
-            {data.players.map(p=>(
-              <tr key={p.id}>
-                <td><b>{p.name}</b><small>{p.role}</small></td>
-                <td>{playerSquadForOperation(op,p.id)}</td>
-                <td>
-                  <select value={squads.find(s=>s.name===p.squad)?.id||''} onChange={e=>assign(p.id,e.target.value)}>
-                    <option value="">Unassigned</option>
-                    {squads.map(s=><option value={s.id} key={s.id}>{s.name}</option>)}
-                  </select>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="section-head"><h3>Quick assignment</h3><span>{unassigned.length} UNASSIGNED</span></div>
+        <div className="quick-assign">
+          <label className="field"><span>PLAYER</span><select value={selectedPlayer} onChange={e=>setSelectedPlayer(e.target.value)}><option value="">Select player</option>{roster.map(p=><option key={p.id} value={p.id}>{p.name} · {op.attendanceByPlayer?.[p.id]||'pending'}</option>)}</select></label>
+          <div className="quick-grid">{squads.map(s=><button className="btn" key={s.id} disabled={!selectedPlayer} onClick={()=>assign(selectedPlayer,s.id)}>MOVE TO {s.name}</button>)}</div>
+          <button className="btn" disabled={!selectedPlayer} onClick={()=>assign(selectedPlayer,'')}>UNASSIGN PLAYER</button>
+        </div>
+        <div className="section-head change-head"><h3>Last-minute change log</h3><span>{(op.squadChanges||[]).length} RECENT</span></div>
+        <div className="change-log">{(op.squadChanges||[]).map(c=><div className="change-item" key={c.id}><div><b>{c.action}</b><small>{new Date(c.time).toLocaleString()}</small></div><Tag tone="green">LIVE</Tag></div>)}{!(op.squadChanges||[]).length&&<span className="muted">No squad changes recorded yet.</span>}</div>
       </div>
     </div>
   </>;
@@ -748,4 +766,4 @@ function Wiki({data,setData}){const [q,setQ]=useState(''); const [title,setTitle
 
 function AAR({data,setData,embedded=false}){const [local,setLocal]=useState(data.aar);function save(){setData(d=>({...d,aar:local}));alert('AAR saved.');}return <div className={embedded?'embedded':''}>{!embedded&&<PageHead eyebrow="POST-MATCH" title="AFTER ACTION REVIEW" subtitle="CAPTURE LESSONS → IMPROVE THE NEXT OPERATION" actions={<button className="btn primary" onClick={save}><Save size={15}/> SAVE AAR</button>}/>}<div className="grid g4"><Stat label="RESULT" value={local.result} sub={local.score} trend/><Stat label="ATTENDANCE" value="24/25" sub="96%"/><Stat label="GARRISON SCORE" value="8/10" sub="GOOD"/><Stat label="COMMS" value="7/10" sub="IMPROVE"/></div><div className="grid g2 section"><div className="card form"><label className="field"><span>WHAT WORKED?</span><textarea value={local.worked} onChange={e=>setLocal(x=>({...x,worked:e.target.value}))}/></label><label className="field"><span>WHAT FAILED?</span><textarea value={local.failed} onChange={e=>setLocal(x=>({...x,failed:e.target.value}))}/></label></div><div className="card"><div className="section-head"><h3>Squad evaluation</h3></div><table className="table"><tbody>{[['Alpha','9/10','EXCELLENT','green'],['Bravo','7/10','ROTATION','yellow'],['Charlie','8/10','SOLID','green'],['Delta','6/10','COMMS','red']].map(([a,b,c,t])=><tr key={a}><td>{a}</td><td>{b}</td><td><Tag tone={t}>{c}</Tag></td></tr>)}</tbody></table></div></div></div>}
 
-createRoot(document.getElementById('root')).render(<BrowserRouter><App/></BrowserRouter>);
+createRoot(document.getElementById('root')).render(<Browser
