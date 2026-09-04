@@ -4,7 +4,7 @@ import { BrowserRouter, NavLink, Route, Routes, useLocation, useNavigate, usePar
 import { createClient } from '@supabase/supabase-js';
 import {
   Activity, Archive, ArrowDownRight, ArrowLeft, ArrowUpRight, Bell, BookOpen, CalendarDays,
-  Check, ChevronDown, ClipboardCheck, Crosshair, FileText, Flag, Grid3X3, Hammer, Home,
+  Check, ChevronDown, ClipboardCheck, Copy, Crosshair, FileText, Flag, Grid3X3, Hammer, Home,
   LogIn, LogOut, Map as MapIcon, Menu, MessageSquare, Plus, Radio, Save, Search, Settings,
   Shield, Swords, Target, Users, X, Zap
 } from 'lucide-react';
@@ -96,11 +96,11 @@ function useClanStore(user){
       setLoading(true);
       const {data:member,error:memberError}=await supabase
         .from('clan_members')
-        .select('clan_id,role,callsign,clans(id,name,tag)')
+        .select('clan_id,role,callsign,clans(id,name,tag,invite_code)')
         .eq('user_id',user.id).eq('active',true).limit(1).maybeSingle();
       if(memberError){ if(!cancelled){setError(memberError.message);setLoading(false);} return; }
       if(!member){ if(!cancelled){setNeedsOnboarding(true);setLoading(false);} return; }
-      const clanInfo={id:member.clan_id,name:member.clans?.name||'Clan',tag:member.clans?.tag||'',role:member.role,callsign:member.callsign||user.user_metadata?.name||user.email?.split('@')[0]||'Player'};
+      const clanInfo={id:member.clan_id,name:member.clans?.name||'Clan',tag:member.clans?.tag||'',inviteCode:member.clans?.invite_code||'',role:member.role,callsign:member.callsign||user.user_metadata?.name||user.email?.split('@')[0]||'Player'};
       const {data:row,error:stateError}=await supabase.from('clan_app_state').select('data').eq('clan_id',member.clan_id).maybeSingle();
       if(stateError){ if(!cancelled){setError(stateError.message);setLoading(false);} return; }
       if(!cancelled){setClan(clanInfo);setData(normalizeData(row?.data || seed));setNeedsOnboarding(false);setLoading(false);}
@@ -128,16 +128,28 @@ function useClanStore(user){
   },[clan?.id]);
 
   async function createClan(name,tag){
-    if(!supabase) { setClan({id:'demo-clan',name,tag,role:'commander',callsign: user.user_metadata?.name || user.email?.split('@')[0] || 'Player'}); setNeedsOnboarding(false); return; }
+    if(!supabase) { setClan({id:'demo-clan',name,tag,inviteCode:'demo1234',role:'commander',callsign: user.user_metadata?.name || user.email?.split('@')[0] || 'Player'}); setNeedsOnboarding(false); return; }
     const {data:clanRow,error:clanError}=await supabase.from('clans').insert({name,tag,created_by:user.id}).select().single();
     if(clanError) throw clanError;
     const {error:memberError}=await supabase.from('clan_members').insert({clan_id:clanRow.id,user_id:user.id,role:'commander',callsign:user.user_metadata?.name||user.email?.split('@')[0]});
     if(memberError) throw memberError;
     const {error:stateError}=await supabase.from('clan_app_state').insert({clan_id:clanRow.id,data:seed});
     if(stateError) throw stateError;
-    setClan({id:clanRow.id,name:clanRow.name,tag:clanRow.tag,role:'commander',callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'}); setData(seed); setNeedsOnboarding(false);
+    setClan({id:clanRow.id,name:clanRow.name,tag:clanRow.tag,inviteCode:clanRow.invite_code||'',role:'commander',callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'}); setData(seed); setNeedsOnboarding(false);
   }
-  return {data,setData,clan,setClan,loading,error,needsOnboarding,createClan};
+  async function joinClan(inviteCode){
+    if(!supabase){ setClan({id:'demo-clan',name:'HLL Demo Clan',tag:'DEMO',inviteCode:'demo1234',role:'player',callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'}); setNeedsOnboarding(false); return; }
+    const {data:joined,error:joinError}=await supabase.rpc('join_clan_by_invite',{p_code:inviteCode});
+    if(joinError) throw joinError;
+    const row=Array.isArray(joined)?joined[0]:joined;
+    if(!row?.clan_id) throw new Error('Could not join clan.');
+    const {data:stateRow,error:stateError}=await supabase.from('clan_app_state').select('data').eq('clan_id',row.clan_id).maybeSingle();
+    if(stateError) throw stateError;
+    setClan({id:row.clan_id,name:row.clan_name,tag:row.clan_tag,inviteCode:inviteCode,role:row.member_role,callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'});
+    setData(normalizeData(stateRow?.data || seed));
+    setNeedsOnboarding(false);
+  }
+  return {data,setData,clan,setClan,loading,error,needsOnboarding,createClan,joinClan};
 }
 
 function useAuth(){
@@ -156,17 +168,17 @@ function App(){
 function AuthenticatedApp({session}){
   const store=useClanStore(session.user);
   if(store.loading) return <div className="splash"><Shield size={36}/><div>LOADING CLAN DATA</div></div>;
-  if(store.needsOnboarding) return <Onboarding user={session.user} onCreate={store.createClan}/>;
+  if(store.needsOnboarding) return <Onboarding user={session.user} onCreate={store.createClan} onJoin={store.joinClan}/>;
   if(store.error) return <div className="splash"><Shield size={36}/><div><b>DATA CONNECTION ERROR</b><small>{store.error}</small></div></div>;
   return <Shell session={session} store={store}/>;
 }
 
-function Onboarding({user,onCreate}){
-  const [name,setName]=useState(''); const [tag,setTag]=useState(''); const [busy,setBusy]=useState(false); const [error,setError]=useState('');
-  async function submit(e){e.preventDefault();setBusy(true);setError('');try{await onCreate(name.trim(),tag.trim().toUpperCase());}catch(e){setError(e.message||'Could not create clan.')}finally{setBusy(false)}}
-  return <div className="login"><div className="login-card"><div className="brand large">HLL // COMMAND<small>CLAN OPERATIONS HUB</small></div><div className="eyebrow">FIRST-TIME SETUP</div><h1>CREATE YOUR CLAN</h1><p>Welcome {user.user_metadata?.name || user.email}. Create the clan workspace that will hold your operations, players, maps and briefings.</p><form onSubmit={submit} className="stack"><label>Clan name<input value={name} onChange={e=>setName(e.target.value)} placeholder="7th Armored Division" required/></label><label>Clan tag<input value={tag} onChange={e=>setTag(e.target.value)} placeholder="7AD" maxLength={8} required/></label>{error&&<div className="error">{error}</div>}<button className="btn primary" disabled={busy}>{busy?'CREATING…':'CREATE CLAN'} <Plus size={15}/></button></form></div></div>
+function Onboarding({user,onCreate,onJoin}){
+  const [mode,setMode]=useState('create'); const [name,setName]=useState(''); const [tag,setTag]=useState(''); const [invite,setInvite]=useState(''); const [busy,setBusy]=useState(false); const [error,setError]=useState('');
+  async function createSubmit(e){e.preventDefault();setBusy(true);setError('');try{await onCreate(name.trim(),tag.trim().toUpperCase());}catch(e){setError(e.message||'Could not create clan.')}finally{setBusy(false)}}
+  async function joinSubmit(e){e.preventDefault();setBusy(true);setError('');try{await onJoin(invite.trim().toLowerCase());}catch(e){setError(e.message||'Could not join clan.')}finally{setBusy(false)}}
+  return <div className="login"><div className="login-card wide"><div className="brand large">HLL // COMMAND<small>CLAN OPERATIONS HUB</small></div><div className="eyebrow">FIRST-TIME SETUP</div><h1>{mode==='create'?'CREATE YOUR CLAN':'JOIN YOUR CLAN'}</h1><p>Welcome {user.user_metadata?.name || user.email}. {mode==='create'?'Create the clan workspace that will hold your operations, players, maps and briefings.':'Enter the invite code supplied by your commander to join the existing clan workspace.'}</p><div className="tabs auth-tabs"><button className={mode==='create'?'active':''} onClick={()=>{setMode('create');setError('')}}>CREATE CLAN</button><button className={mode==='join'?'active':''} onClick={()=>{setMode('join');setError('')}}>JOIN CLAN</button></div>{mode==='create'?<form onSubmit={createSubmit} className="stack"><label>Clan name<input value={name} onChange={e=>setName(e.target.value)} placeholder="7th Armored Division" required/></label><label>Clan tag<input value={tag} onChange={e=>setTag(e.target.value)} placeholder="7AD" maxLength={8} required/></label>{error&&<div className="error">{error}</div>}<button className="btn primary" disabled={busy}>{busy?'CREATING…':'CREATE CLAN'} <Plus size={15}/></button></form>:<form onSubmit={joinSubmit} className="stack"><label>Clan invite code<input value={invite} onChange={e=>setInvite(e.target.value)} placeholder="a1b2c3d4" maxLength={16} required/></label><div className="callout">Your commander can find the invite code under <b>Members</b> after logging in.</div>{error&&<div className="error">{error}</div>}<button className="btn primary" disabled={busy}>{busy?'JOINING…':'JOIN CLAN'} <Users size={15}/></button></form>}<div className="login-foot">{supabase?'Cloud accounts enabled':'Demo mode enabled'}</div></div></div>
 }
-
 function Login(){
   const [email,setEmail]=useState(''); const [password,setPassword]=useState(''); const [busy,setBusy]=useState(false); const [error,setError]=useState('');
   async function submit(e){e.preventDefault();setBusy(true);setError(''); if(!supabase){alert('Demo mode: configure Supabase to enable accounts.');setBusy(false);return;} const {error}=await supabase.auth.signInWithPassword({email,password}); if(error)setError(error.message); setBusy(false)}
@@ -179,9 +191,9 @@ function Shell({session,store}){
   const navigate=useNavigate();
   async function logout(){if(supabase) await supabase.auth.signOut(); else window.location.reload()}
   return <div className="app"><aside className={sidebar?'sidebar open':'sidebar'}><div className="brand">HLL // COMMAND<small>{clan?.tag ? `${clan.tag} · ` : ''}CLAN OPERATIONS HUB</small></div><nav>{[
-    ['/', 'Dashboard', Home],['/operations','Operations',Swords],['/calendar','Calendar',CalendarDays],['/roster','Roster',Users],['/strategy','Strategies',Target],['/maps','Stage Maps',MapIcon],['/briefings','Briefings',FileText],['/wiki','Clan Wiki',BookOpen],['/aar','AAR',ClipboardCheck]
+    ['/', 'Dashboard', Home],['/operations','Operations',Swords],['/calendar','Calendar',CalendarDays],['/roster','Roster',Users],['/members','Members',Users],['/strategy','Strategies',Target],['/maps','Stage Maps',MapIcon],['/briefings','Briefings',FileText],['/wiki','Clan Wiki',BookOpen],['/aar','AAR',ClipboardCheck]
   ].map(([to,label,Icon])=><NavLink key={to} to={to} onClick={()=>setSidebar(false)} className={({isActive})=>isActive?'navitem active':'navitem'}><Icon size={17}/><span>{label}</span></NavLink>)}</nav><div className="side-bottom"><div className="online"><i/>SYSTEM ONLINE</div><div>{clan?.name || 'HLL Demo Clan'}</div><div className="muted">{supabase ? 'SUPABASE CONNECTED' : 'LOCAL DEMO MODE'}</div></div></aside><main><header className="topbar"><button className="mobile-menu" onClick={()=>setSidebar(v=>!v)}><Menu/></button><TopCrumb/><div className="top-right"><button className="iconbtn"><Bell size={16}/><em></em></button><button className="profile profile-clickable" onClick={()=>navigate('/profile')} title="Edit profile"><div className="avatar">{displayName.slice(0,1).toUpperCase()}</div><div><b>{displayName}</b><span>{(clan?.role || DEMO_USER.role).toUpperCase()}</span></div></button><button className="iconbtn" onClick={logout} title="Log out"><LogOut size={15}/></button></div></header><div className="content"><Routes>
-    <Route path="/" element={<Dashboard data={data}/>}/><Route path="/operations" element={<Operations data={data} setData={setData}/>}/><Route path="/operations/:id" element={<OperationDetail data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/calendar" element={<Calendar data={data} setData={setData}/>}/><Route path="/roster" element={<Roster data={data} setData={setData}/>}/><Route path="/strategy" element={<Strategy data={data} setData={setData}/>}/><Route path="/maps" element={<Maps data={data} setData={setData}/>}/><Route path="/briefings" element={<Briefings data={data} setData={setData}/>}/><Route path="/wiki" element={<Wiki data={data} setData={setData}/>}/><Route path="/aar" element={<AAR data={data} setData={setData}/>}/><Route path="/profile" element={<Profile user={user} clan={clan} store={store}/>}/>
+    <Route path="/" element={<Dashboard data={data}/>}/><Route path="/my-operation" element={<MyOperation data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/operations" element={<Operations data={data} setData={setData}/>}/><Route path="/operations/:id" element={<OperationDetail data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/calendar" element={<Calendar data={data} setData={setData}/>}/><Route path="/roster" element={<Roster data={data} setData={setData}/>}/><Route path="/members" element={<Members clan={clan} user={user} data={data}/>}/><Route path="/strategy" element={<Strategy data={data} setData={setData}/>}/><Route path="/maps" element={<Maps data={data} setData={setData}/>}/><Route path="/briefings" element={<Briefings data={data} setData={setData}/>}/><Route path="/wiki" element={<Wiki data={data} setData={setData}/>}/><Route path="/aar" element={<AAR data={data} setData={setData}/>}/><Route path="/profile" element={<Profile user={user} clan={clan} store={store}/>}/>
   </Routes></div></main></div>
 }
 
@@ -205,6 +217,34 @@ function Profile({user,clan,store}){
 function PageHead({eyebrow,title,subtitle,actions}){return <div className="page-head"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1><div className="subtitle">{subtitle}</div></div><div className="actions">{actions}</div></div>}
 function Stat({label,value,sub,trend}){return <div className="card stat"><div className="k">{label}</div><div className="v">{value}</div><div className={trend?'s trend':'s'}>{sub}</div></div>}
 function Tag({children,tone=''}){return <span className={`tag ${tone}`}>{children}</span>}
+
+function MyOperation({data,setData,user,clan}){
+  const navigate=useNavigate();
+  const op=data.ops.find(o=>o.status==='active')||data.ops[0];
+  const player=currentPlayer(data,user,clan);
+  const status=player&&op?(op.attendanceByPlayer||{})[player.id]||'pending':'pending';
+  const squad=player?player.squad:'Unassigned';
+  const brief=player?(op?.briefingsByPlayer||{})[player.id]:null;
+  const phase=(op?.strategyData?.phases||DEFAULT_PHASES).find(p=>p.intent)||DEFAULT_PHASES[0];
+  if(!op) return <div className="card"><h2>NO ACTIVE OPERATION</h2><p className="subtitle">Your commander has not created an operation yet.</p><button className="btn" onClick={()=>navigate('/operations')}>OPEN OPERATIONS</button></div>;
+  function respond(next){
+    let pid=player?.id;
+    if(!pid){pid=crypto.randomUUID?.()||Math.random().toString(36).slice(2);setData(d=>({...d,players:[...d.players,{id:pid,memberUserId:user.id,name:clan?.callsign||user.email?.split('@')[0]||'Player',squad:'Unassigned',role:'Rifleman',status:'ready'}]}));}
+    setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?{...x,attendanceByPlayer:{...(x.attendanceByPlayer||{}),[pid]:next}}:x)}));
+  }
+  return <>
+    <PageHead eyebrow={`PLAYER CONSOLE // OPERATION #${op.id}`} title={op.name} subtitle={`${op.map} · ${op.mode} · ${op.date} · ${op.time} · VS ${op.opponent}`} actions={<Tag tone={status==='going'?'green':status==='declined'?'red':'yellow'}>{status.toUpperCase()}</Tag>}/>
+    <div className="grid g4"><Stat label="ATTENDANCE" value={status.toUpperCase()} sub="YOUR RESPONSE" trend={status==='going'}/><Stat label="SQUAD" value={squad} sub={player?.role||'ROLE NOT SET'}/><Stat label="CURRENT PHASE" value={String(phase.no).padStart(2,'0')} sub={phase.name}/><Stat label="BRIEFING" value={brief?.published?'READY':'PENDING'} sub="INDIVIDUAL MISSION"/></div>
+    <div className="grid g2 section">
+      <div className="card form"><div className="eyebrow">YOUR ATTENDANCE</div><h2>REPORT AVAILABILITY</h2><p className="subtitle">Your commander uses this response to build squads and readiness.</p><div className="actions"><button className={status==='going'?'btn primary':'btn'} onClick={()=>respond('going')}><Check size={15}/> GOING</button><button className={status==='maybe'?'btn primary':'btn'} onClick={()=>respond('maybe')}>MAYBE</button><button className={status==='declined'?'btn primary':'btn'} onClick={()=>respond('declined')}>DECLINE</button></div><div className="callout"><Radio size={15}/> Attendance is saved to this operation and visible to command.</div></div>
+      <div className="card brief"><div className="eyebrow">YOUR INDIVIDUAL BRIEFING</div><h2>{brief?.title||'NOT PUBLISHED YET'}</h2><div className="subtitle">{squad.toUpperCase()} · {(player?.role||'RIFLEMAN').toUpperCase()}</div>{brief?.published?<p>{brief.body||'No mission text has been written yet.'}</p>:<p>Your squad assignment and mission brief will appear here once command publishes them.</p>}<Tag tone={brief?.published?'green':'yellow'}>{brief?.published?'PUBLISHED':'WAITING FOR COMMAND'}</Tag></div>
+    </div>
+    <div className="grid g2 section">
+      <div className="card"><div className="section-head"><h3>Command plan</h3><span>PHASE {String(phase.no).padStart(2,'0')}</span></div><div className="side-list"><div className="row"><div><b>Commander intent</b><small>{op.strategyData?.intent||'Not published yet.'}</small></div></div><div className="row"><div><b>Your phase task</b><small>{phase.tasks?.length?phase.tasks.join(' · '):'No task assigned yet.'}</small></div></div><div className="row"><div><b>Global orders</b><small>{op.strategyData?.orders||'No global orders published yet.'}</small></div></div></div></div>
+      <div className="card"><div className="section-head"><h3>Operation navigation</h3><span>FULL WORKSPACE</span></div><div className="actions"><button className="btn" onClick={()=>navigate(`/operations/${op.id}`)}>OPEN OPERATION</button><button className="btn" onClick={()=>navigate(`/operations/${op.id}`)}>VIEW STAGE MAPS</button></div><div className="callout"><MessageSquare size={15}/> Your commander should publish your final briefing before squad lock.</div></div>
+    </div>
+  </>;
+}
 
 function Dashboard({data}){
   const op=data.ops.find(o=>o.status==='active') || data.ops[0] || makeOperation({},0);
@@ -466,6 +506,13 @@ function Roster({data,setData,embedded=false}){
       </div>
     </div>
   </div>;
+}
+
+function Members({clan,user,data}){
+  const [members,setMembers]=useState([]); const [loading,setLoading]=useState(true); const [error,setError]=useState(''); const [copied,setCopied]=useState(false);
+  useEffect(()=>{let live=true;(async()=>{if(!supabase||!clan?.id){setMembers(data.players.map(p=>({id:p.id,callsign:p.name,role:p.role,user_id:p.memberUserId,active:true})));setLoading(false);return;} const {data:rows,error:e}=await supabase.from('clan_members').select('id,user_id,callsign,role,active,created_at').eq('clan_id',clan.id).order('created_at',{ascending:true}); if(live){setMembers(rows||[]);setError(e?.message||'');setLoading(false);}})();return()=>{live=false}},[clan?.id,data.players.length]);
+  async function copyInvite(){if(!clan?.inviteCode)return;try{await navigator.clipboard.writeText(clan.inviteCode);setCopied(true);setTimeout(()=>setCopied(false),1500);}catch{setCopied(false)}}
+  return <><PageHead eyebrow="PERSONNEL COMMAND" title="CLAN MEMBERS" subtitle="ACCOUNTS · ROLES · INVITE ACCESS"/><div className="grid g3"><div className="card stat"><div className="k">MEMBERS</div><div className="v">{members.length}</div><div className="s">ACTIVE CLAN ACCOUNTS</div></div><div className="card stat"><div className="k">COMMANDERS</div><div className="v">{members.filter(m=>m.role==='commander'||m.role==='co').length}</div><div className="s">COMMAND ACCESS</div></div><div className="card"><div className="section-head"><h3>Invite code</h3><span>SHARE WITH CLAN</span></div><div className="invite-code">{clan?.inviteCode||'—'}</div><button className="btn primary" onClick={copyInvite} disabled={!clan?.inviteCode}><Copy size={14}/> {copied?'COPIED':'COPY INVITE CODE'}</button></div></div>{error&&<div className="error section">{error}</div>}<div className="card section"><div className="section-head"><h3>Member roster</h3><span>{loading?'LOADING…':'LIVE FROM SUPABASE'}</span></div><table className="table"><thead><tr><th>CALLSIGN</th><th>ROLE</th><th>STATUS</th><th>USER ID</th></tr></thead><tbody>{members.map(m=><tr key={m.id}><td><b>{m.callsign||'Unnamed player'}</b></td><td><Tag tone={m.role==='commander'?'green':m.role==='squad_lead'?'yellow':''}>{String(m.role||'player').replace('_',' ').toUpperCase()}</Tag></td><td><Tag tone={m.active?'green':'red'}>{m.active?'ACTIVE':'INACTIVE'}</Tag></td><td><small>{m.user_id===user?.id?'YOU':(m.user_id||'—').slice(0,8)}</small></td></tr>)}{!members.length&&!loading&&<tr><td colSpan="4">No clan members found.</td></tr>}</tbody></table></div></>
 }
 
 function Strategy({data,setData,embedded=false}){const [local,setLocal]=useState(data.strategy); useEffect(()=>setLocal(data.strategy),[data.strategy]); function save(){setData(d=>({...d,strategy:local}));alert('Strategy saved to local command database.')} return <div className={embedded?'embedded':''}>{!embedded&&<PageHead eyebrow="OPERATION 042" title="STRATEGY BUILDER" subtitle="COMMANDER'S INTENT → PHASES → TASKS" actions={<button className="btn primary" onClick={save}><Save size={15}/> SAVE STRATEGY</button>}/>}<div className="grid g2"><div className="card form"><div className="form-grid"><Input label="OPERATION NAME" value={local.name} onChange={v=>setLocal(x=>({...x,name:v}))}/><Input label="COMMANDER'S INTENT" value={local.intent} onChange={v=>setLocal(x=>({...x,intent:v}))}/></div><label className="field"><span>GLOBAL ORDERS</span><textarea value={local.orders} onChange={e=>setLocal(x=>({...x,orders:e.target.value}))}/></label><div className="callout"><Target size={15}/> Every phase should map to a stage map and at least one squad task.</div></div><div className="card"><div className="section-head"><h3>Battle phases</h3><span>4 PHASES</span></div><div className="side-list">{[['01 — SETUP','Garrisons, nodes, defensive positions','green'],['02 — CONTACT','Absorb first push, identify armor','green'],['03 — ROTATE','Shift Bravo north on center pressure','yellow'],['04 — FINAL','Fallback network, counterattack on call','']].map(([a,b,t])=><div className="row" key={a}><div><b>{a}</b><small>{b}</small></div><Tag tone={t}>{t==='green'?'READY':t==='yellow'?'DRAFT':'DRAFT'}</Tag></div>)}</div></div></div><div className="card section"><div className="section-head"><h3>Squad tasks</h3><span>LINKED TO PHASES</span></div><table className="table"><thead><tr><th>SQUAD</th><th>PRIMARY TASK</th><th>PHASE</th><th>DEPENDENCY</th></tr></thead><tbody><tr><td><b>ALPHA</b></td><td>Own western sector; protect G1</td><td>01–02</td><td>Supply + fallback</td></tr><tr><td><b>BRAVO</b></td><td>Center line + armor reserve</td><td>01–04</td><td>Commander release</td></tr><tr><td><b>CHARLIE</b></td><td>Southern fallback / counterattack</td><td>02–04</td><td>G2 integrity</td></tr><tr><td><b>DELTA</b></td><td>Recon + arty coordination</td><td>01–03</td><td>Grid reporting</td></tr></tbody></table></div></div>}
