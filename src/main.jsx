@@ -69,6 +69,7 @@ function makeOperation(op={}, index=0){
     strategyData:op.strategyData||{intent:'',orders:'',phases:DEFAULT_PHASES.map(p=>({...p,tasks:[]}))},
     stageMaps:op.stageMaps||DEFAULT_PHASES.map(p=>({phaseNo:p.no,name:p.name,markers:[]})),
     briefingsByPlayer:op.briefingsByPlayer||{},
+    briefingReceipts:op.briefingReceipts||{},
     aarData:op.aarData||{result:'',score:'',worked:'',failed:'',lessons:''}
   };
 }
@@ -124,9 +125,8 @@ async function syncOperationRelations({clanId,user,role,op,players}){
     for(const m of (op.stageMaps||[])) for(const marker of (m.markers||[])) objects.push({stage_map_id:mapIdByPhase[String(m.phaseNo)],object_type:marker.type||'objective',label:marker.label||'',x:Number(marker.x)||0,y:Number(marker.y)||0,width:null,height:null,rotation:0,squad_id:null,player_id:null,metadata:{}});
     if(objects.length){ const {error}=await supabase.from('map_objects').insert(objects); if(error) throw error; }
 
-    { const {error}=await supabase.from('briefings').delete().eq('operation_id',opRow.id); if(error) throw error; }
     const briefingRows=Object.entries(op.briefingsByPlayer||{}).map(([pid,b])=>({operation_id:opRow.id,scope:'individual',squad_id:null,player_id:pid,title:b?.title||'',body:b?.body||'',checklist:b?.checklist||[],published_at:b?.published?b.publishedAt||new Date().toISOString():null,updated_by:user.id,updated_at:new Date().toISOString()})).filter(x=>x.player_id);
-    if(briefingRows.length){ const {error}=await supabase.from('briefings').insert(briefingRows); if(error) throw error; }
+    if(briefingRows.length){ const {error}=await supabase.from('briefings').upsert(briefingRows,{onConflict:'operation_id,player_id'}); if(error) throw error; }
     if(op.aarData && Object.values(op.aarData).some(Boolean)){
       const {error}=await supabase.from('aars').upsert({operation_id:opRow.id,result:op.aarData.result||null,score:op.aarData.score||null,worked:op.aarData.worked||null,failed:op.aarData.failed||null,lessons_learned:op.aarData.lessons?[op.aarData.lessons]:[],created_by:user.id,updated_at:new Date().toISOString()},{onConflict:'operation_id'}); if(error) throw error;
     }
@@ -155,12 +155,16 @@ async function loadRelationalOperations(clanId,baseData,members){
     supabase.from('aars').select('*').in('operation_id',opIds)
   ]);
   for(const r of [sq,ra,ph,sm,bf,aar]) if(r.error) throw r.error;
+  const briefingIds=(bf.data||[]).map(x=>x.id);
+  const receiptQuery=briefingIds.length ? await supabase.from('briefing_receipts').select('*').in('briefing_id',briefingIds) : {data:[],error:null};
+  if(receiptQuery.error) throw receiptQuery.error;
   const memberById=Object.fromEntries(members.map(m=>[m.id,m]));
   const squadByOp={}; for(const row of sq.data||[]) (squadByOp[row.operation_id]??=[]).push(row);
   const assignByOp={}; for(const row of ra.data||[]) (assignByOp[row.operation_id]??=[]).push(row);
   const phaseByOp={}; for(const row of ph.data||[]) (phaseByOp[row.operation_id]??=[]).push({...row,tasks:[]});
   const mapByOp={}; for(const row of sm.data||[]) (mapByOp[row.operation_id]??=[]).push({...row,markers:[]});
-  const briefByOp={}; for(const row of bf.data||[]) ((briefByOp[row.operation_id]??={})[row.player_id]={title:row.title||'',body:row.body||'',checklist:row.checklist||[],published:!!row.published_at,publishedAt:row.published_at||null});
+  const receiptByBrief=Object.fromEntries((receiptQuery.data||[]).map(r=>[r.briefing_id,r]));
+  const briefByOp={}; for(const row of bf.data||[]){ const rec=receiptByBrief[row.id]; ((briefByOp[row.operation_id]??={})[row.player_id]={id:row.id,title:row.title||'',body:row.body||'',checklist:row.checklist||[],published:!!row.published_at,publishedAt:row.published_at||null,read:!!rec?.read_at,readAt:rec?.read_at||null,acknowledged:!!rec?.acknowledged_at,acknowledgedAt:rec?.acknowledged_at||null}); }
   const aarByOp=Object.fromEntries((aar.data||[]).map(row=>[row.operation_id,{result:row.result||'',score:row.score||'',worked:row.worked||'',failed:row.failed||'',lessons:Array.isArray(row.lessons_learned)?row.lessons_learned.join('\n'):''}]));
   const taskRows=await supabase.from('strategy_tasks').select('*').in('phase_id',(ph.data||[]).map(x=>x.id)); if(taskRows.error) throw taskRows.error;
   const tasksByPhase={}; for(const row of taskRows.data||[]) (tasksByPhase[row.phase_id]??=[]).push(row.title);
@@ -343,22 +347,39 @@ function MyOperation({data,setData,user,clan}){
   const squad=player?playerSquadForOperation(op,player.id):'Unassigned';
   const brief=player?(op?.briefingsByPlayer||{})[player.id]:null;
   const phase=(op?.strategyData?.phases||DEFAULT_PHASES).find(p=>p.intent)||DEFAULT_PHASES[0];
+  const [receiptBusy,setReceiptBusy]=useState(false);
   if(!op) return <div className="card"><h2>NO ACTIVE OPERATION</h2><p className="subtitle">Your commander has not created an operation yet.</p><button className="btn" onClick={()=>navigate('/operations')}>OPEN OPERATIONS</button></div>;
   function respond(next){
     let pid=player?.id;
     if(!pid){pid=crypto.randomUUID?.()||Math.random().toString(36).slice(2);setData(d=>({...d,players:[...d.players,{id:pid,memberUserId:user.id,name:clan?.callsign||user.email?.split('@')[0]||'Player',squad:'Unassigned',role:'Rifleman',status:'ready'}]}));}
     setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?{...x,attendanceByPlayer:{...(x.attendanceByPlayer||{}),[pid]:next}}:x)}));
   }
+  async function markReceipt(action){
+    if(!brief?.id || !user?.id || !supabase) return;
+    setReceiptBusy(true);
+    const now=new Date().toISOString();
+    const payload={
+      briefing_id:brief.id,
+      player_id:user.id,
+      read_at:brief.readAt||now,
+      acknowledged_at:action==='ack' ? (brief.acknowledgedAt||now) : (brief.acknowledgedAt||null),
+      updated_at:now
+    };
+    const {error}=await supabase.from('briefing_receipts').upsert(payload,{onConflict:'briefing_id,player_id'});
+    setReceiptBusy(false);
+    if(error){alert(error.message);return;}
+    setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?{...x,briefingsByPlayer:{...(x.briefingsByPlayer||{}),[player.id]:{...(x.briefingsByPlayer?.[player.id]||{}),read:true,readAt:payload.read_at,acknowledged:!!payload.acknowledged_at,acknowledgedAt:payload.acknowledged_at}}}:x)}));
+  }
   return <>
     <PageHead eyebrow={`PLAYER CONSOLE // OPERATION #${op.id}`} title={op.name} subtitle={`${op.map} · ${op.mode} · ${op.date} · ${op.time} · VS ${op.opponent}`} actions={<Tag tone={status==='going'?'green':status==='declined'?'red':'yellow'}>{status.toUpperCase()}</Tag>}/>
-    <div className="grid g4"><Stat label="ATTENDANCE" value={status.toUpperCase()} sub="YOUR RESPONSE" trend={status==='going'}/><Stat label="SQUAD" value={squad} sub={player?.role||'ROLE NOT SET'}/><Stat label="CURRENT PHASE" value={String(phase.no).padStart(2,'0')} sub={phase.name}/><Stat label="BRIEFING" value={brief?.published?'READY':'PENDING'} sub="INDIVIDUAL MISSION"/></div>
+    <div className="grid g4"><Stat label="ATTENDANCE" value={status.toUpperCase()} sub="YOUR RESPONSE" trend={status==='going'}/><Stat label="SQUAD" value={squad} sub={player?.role||'ROLE NOT SET'}/><Stat label="CURRENT PHASE" value={String(phase.no).padStart(2,'0')} sub={phase.name}/><Stat label="BRIEFING" value={brief?.acknowledged?'ACKNOWLEDGED':brief?.read?'READ':brief?.published?'UNREAD':'PENDING'} sub="INDIVIDUAL MISSION" trend={!!brief?.acknowledged}/></div>
     <div className="grid g2 section">
       <div className="card form"><div className="eyebrow">YOUR ATTENDANCE</div><h2>REPORT AVAILABILITY</h2><p className="subtitle">Your commander uses this response to build squads and readiness.</p><div className="actions"><button className={status==='going'?'btn primary':'btn'} onClick={()=>respond('going')}><Check size={15}/> GOING</button><button className={status==='maybe'?'btn primary':'btn'} onClick={()=>respond('maybe')}>MAYBE</button><button className={status==='declined'?'btn primary':'btn'} onClick={()=>respond('declined')}>DECLINE</button></div><div className="callout"><Radio size={15}/> Attendance is saved to this operation and visible to command.</div></div>
-      <div className="card brief"><div className="eyebrow">YOUR INDIVIDUAL BRIEFING</div><h2>{brief?.title||'NOT PUBLISHED YET'}</h2><div className="subtitle">{squad.toUpperCase()} · {(player?.role||'RIFLEMAN').toUpperCase()}</div>{brief?.published?<p>{brief.body||'No mission text has been written yet.'}</p>:<p>Your squad assignment and mission brief will appear here once command publishes them.</p>}<Tag tone={brief?.published?'green':'yellow'}>{brief?.published?'PUBLISHED':'WAITING FOR COMMAND'}</Tag></div>
+      <div className="card brief"><div className="eyebrow">YOUR INDIVIDUAL BRIEFING</div><h2>{brief?.title||'NOT PUBLISHED YET'}</h2><div className="subtitle">{squad.toUpperCase()} · {(player?.role||'RIFLEMAN').toUpperCase()}</div>{brief?.published?<><p>{brief.body||'No mission text has been written yet.'}</p><div className="status-line"><Tag tone={brief.acknowledged?'green':brief.read?'yellow':'red'}>{brief.acknowledged?'ACKNOWLEDGED':brief.read?'READ':'UNREAD'}</Tag></div><div className="actions">{!brief.read&&<button className="btn" disabled={receiptBusy} onClick={()=>markReceipt('read')}>{receiptBusy?'SAVING…':'MARK AS READ'}</button>} {!brief.acknowledged&&<button className="btn primary" disabled={receiptBusy} onClick={()=>markReceipt('ack')}><Check size={15}/> ACKNOWLEDGE ORDERS</button>}</div><div className="callout"><ClipboardCheck size={15}/> Acknowledging confirms you have read your mission orders.</div></>:<><p>Your squad assignment and mission brief will appear here once command publishes them.</p><Tag tone="yellow">WAITING FOR COMMAND</Tag></>}</div>
     </div>
     <div className="grid g2 section">
       <div className="card"><div className="section-head"><h3>Command plan</h3><span>PHASE {String(phase.no).padStart(2,'0')}</span></div><div className="side-list"><div className="row"><div><b>Commander intent</b><small>{op.strategyData?.intent||'Not published yet.'}</small></div></div><div className="row"><div><b>Your phase task</b><small>{phase.tasks?.length?phase.tasks.join(' · '):'No task assigned yet.'}</small></div></div><div className="row"><div><b>Global orders</b><small>{op.strategyData?.orders||'No global orders published yet.'}</small></div></div></div></div>
-      <div className="card"><div className="section-head"><h3>Operation navigation</h3><span>FULL WORKSPACE</span></div><div className="actions"><button className="btn" onClick={()=>navigate(`/operations/${op.id}`)}>OPEN OPERATION</button><button className="btn" onClick={()=>navigate(`/operations/${op.id}`)}>VIEW STAGE MAPS</button></div><div className="callout"><MessageSquare size={15}/> Your commander should publish your final briefing before squad lock.</div></div>
+      <div className="card"><div className="section-head"><h3>Operation navigation</h3><span>FULL WORKSPACE</span></div><div className="actions"><button className="btn" onClick={()=>navigate(`/operations/${op.id}`)}>OPEN OPERATION</button><button className="btn" onClick={()=>navigate(`/operations/${op.id}`)}>VIEW STAGE MAPS</button></div><div className="callout"><MessageSquare size={15}/> Keep this page open for live command changes and the latest mission briefing.</div></div>
     </div>
   </>;
 }
@@ -760,7 +781,63 @@ function Maps({embedded=false}){return <div className={embedded?'embedded':''}>{
 
 function TacticalMap({compact=false,editor=false}){const [markers,setMarkers]=useState([{x:18,y:34,label:'G1',tone:'green'},{x:26,y:48,label:'E1',tone:'red'},{x:70,y:62,label:'O1',tone:'yellow'},{x:77,y:49,label:'M1',tone:'blue'},{x:51,y:70,label:'G2',tone:'green'}]); const [drag,setDrag]=useState(null); function moveMarker(i,e){const rect=e.currentTarget.getBoundingClientRect(); const x=Math.max(2,Math.min(96,((e.clientX-rect.left)/rect.width)*100)); const y=Math.max(2,Math.min(96,((e.clientY-rect.top)/rect.height)*100));setMarkers(m=>m.map((a,n)=>n===i?{...a,x,y}:a))} return <div className={`tactical-map ${compact?'compact':''}`} onPointerMove={e=>{if(drag!=null)moveMarker(drag,e)}} onPointerUp={()=>setDrag(null)}><div className="grid-overlay"/><div className="zone friendly"/><div className="zone contested"/><div className="zone rear"/><div className="river"/><div className="road road-a"/><div className="road road-b"/><div className="route route-a"/><div className="route route-b"/>{markers.map((m,i)=><div key={i} className={`marker ${m.tone}`} style={{left:`${m.x}%`,top:`${m.y}%`}} onPointerDown={()=>setDrag(i)}>{m.label}</div>)}{editor&&<div className="map-tools"><button><ArrowUpRight size={14}/></button><button><X size={14}/></button><button><Settings size={14}/></button><button><Save size={14}/></button></div>}<div className="legend"><span><i className="lg friend"/>FRIENDLY</span><span><i className="lg enemy"/>ENEMY</span><span><i className="lg obj"/>OBJECTIVE</span><span><i className="lg sup"/>SUPPORT</span></div><div className="map-grid-label">GRID // 042-A · CARANTAN</div></div>}
 
-function Briefings({data,setData,embedded=false}){const [player,setPlayer]=useState(Object.keys(data.briefings)[0]||data.players[0]?.name||'Raven'); const [text,setText]=useState(data.briefings[player]||''); useEffect(()=>setText(data.briefings[player]||''),[player,data.briefings]); function publish(){setData(d=>({...d,briefings:{...d.briefings,[player]:text}}));alert(`Briefing published for ${player}.`)} return <div className={embedded?'embedded':''}>{!embedded&&<PageHead eyebrow="PLAYER COMMUNICATION" title="BRIEFING CENTER" subtitle="GLOBAL → SQUAD → INDIVIDUAL" actions={<button className="btn primary" onClick={publish}><Save size={15}/> PUBLISH BRIEFING</button>}/>}<div className="grid g2"><div className="card form"><div className="form-grid"><label className="field"><span>PLAYER</span><select value={player} onChange={e=>setPlayer(e.target.value)}>{data.players.map(p=><option key={p.id} value={p.name}>{p.name} — {p.role}</option>)}</select></label><Input label="SQUAD" value={data.players.find(p=>p.name===player)?.squad||'ALPHA'} onChange={()=>{}}/></div><label className="field"><span>MISSION</span><textarea value={text} onChange={e=>setText(e.target.value)}/></label><div className="checklist"><span className="field-title">CHECKLIST</span>{[['Stay within 100m of SL',true],['Build / maintain Garrison 2',true],['Establish fallback spawn',false],['Resupply AT',false]].map(([x,checked])=><label key={x}><input type="checkbox" defaultChecked={checked}/><span>{x}</span></label>)}</div></div><div className="card brief"><div className="eyebrow">PLAYER PREVIEW</div><h2>{player}</h2><div className="subtitle">{data.players.find(p=>p.name===player)?.squad?.toUpperCase()||'ALPHA'} · {data.players.find(p=>p.name===player)?.role?.toUpperCase()||'SUPPORT'} · PHASE 1</div><h4>Your mission</h4><p>{text}</p><h4>Map responsibilities</h4><p><Tag tone="green">G2</Tag> Supply priority · <Tag tone="yellow">ROUTE B</Tag> Fallback · <Tag tone="red">E1</Tag> Report contact</p><div className="callout"><MessageSquare size={15}/> Published briefings are visible to the assigned player on their dashboard.</div></div></div><div className="card section"><div className="section-head"><h3>Briefing coverage</h3><span>21/25 PUBLISHED</span></div><div className="brief-grid">{data.players.slice(0,10).map(p=><div key={p.id} className="brief-row"><div className="avatar sm">{p.name.slice(0,1)}</div><div><b>{p.name}</b><small>{p.squad} · {p.role}</small></div><Tag tone={data.briefings[p.name]?'green':'red'}>{data.briefings[p.name]?'PUBLISHED':'PENDING'}</Tag></div>)}</div></div></div>}
+function Briefings({data,setData,embedded=false}){
+  const op=useMemo(()=>data.ops.find(o=>o.status==='active')||data.ops[0],[data.ops]);
+  const players=data.players||[];
+  const [player,setPlayer]=useState(players[0]?.id||'');
+  const current=players.find(p=>p.id===player)||players[0];
+  const existing=op?.briefingsByPlayer?.[current?.id]||{};
+  const [text,setText]=useState(existing.body||'');
+  const [title,setTitle]=useState(existing.title||'MISSION BRIEF');
+  const [published,setPublished]=useState(!!existing.published);
+  useEffect(()=>{setText(existing.body||'');setTitle(existing.title||'MISSION BRIEF');setPublished(!!existing.published)},[player,existing.body,existing.title,existing.published]);
+  const receipt=existing;
+  function publish(){
+    if(!op||!current)return;
+    const now=new Date().toISOString();
+    setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?{...x,briefingsByPlayer:{...(x.briefingsByPlayer||{}),[current.id]:{...(x.briefingsByPlayer?.[current.id]||{}),title,body:text,checklist:existing.checklist||[],published:true,publishedAt:existing.publishedAt||now,read:existing.read||false,readAt:existing.readAt||null,acknowledged:existing.acknowledged||false,acknowledgedAt:existing.acknowledgedAt||null}}}:x)}));
+    setPublished(true);
+  }
+  const stats=players.reduce((a,p)=>{const b=op?.briefingsByPlayer?.[p.id];if(b?.published)a.published++;if(b?.read)a.read++;if(b?.acknowledged)a.ack++;return a},{published:0,read:0,ack:0});
+  return <div className={embedded?'embedded':''}>
+    {!embedded&&<PageHead eyebrow="PLAYER COMMUNICATION" title="BRIEFING CENTER" subtitle="PUBLISH · TRACK · ACKNOWLEDGE" actions={<button className="btn primary" onClick={publish}><Save size={15}/> PUBLISH BRIEFING</button>}/>}
+    {!op?<div className="card"><h2>NO OPERATION</h2><p className="subtitle">Create an operation before issuing player briefings.</p></div>:<>
+      <div className="grid g4">
+        <Stat label="PUBLISHED" value={`${stats.published}/${players.length}`} sub="BRIEFINGS ISSUED"/>
+        <Stat label="READ" value={`${stats.read}/${stats.published||0}`} sub="PLAYERS OPENED"/>
+        <Stat label="ACKNOWLEDGED" value={`${stats.ack}/${stats.published||0}`} sub="ORDERS CONFIRMED"/>
+        <Stat label="UNREAD" value={Math.max(0,stats.published-stats.read)} sub="ACTION REQUIRED"/>
+      </div>
+      <div className="grid g2 section">
+        <div className="card form">
+          <div className="form-grid">
+            <label className="field"><span>PLAYER</span><select value={current?.id||''} onChange={e=>setPlayer(e.target.value)}>{players.map(p=><option key={p.id} value={p.id}>{p.name} — {p.squad||'Unassigned'}</option>)}</select></label>
+            <Input label="SQUAD" value={current?.squad||'Unassigned'} onChange={()=>{}}/>
+          </div>
+          <label className="field"><span>BRIEFING TITLE</span><input value={title} onChange={e=>setTitle(e.target.value)} placeholder="e.g. Alpha — G2 Defense"/></label>
+          <label className="field"><span>MISSION</span><textarea value={text} onChange={e=>setText(e.target.value)} placeholder="Write the player's exact mission, priorities and restrictions…"/></label>
+          <div className="actions"><button className="btn primary" onClick={publish}><Save size={15}/> {published?'UPDATE BRIEFING':'PUBLISH BRIEFING'}</button></div>
+          <div className="callout"><MessageSquare size={15}/> Published briefings appear in the player's My Operation view. Players can mark them READ and ACKNOWLEDGED.</div>
+        </div>
+        <div className="card brief">
+          <div className="eyebrow">DELIVERY STATUS</div>
+          <h2>{current?.name||'Player'}</h2>
+          <div className="subtitle">{current?.squad?.toUpperCase()||'UNASSIGNED'} · {(current?.role||'RIFLEMAN').toUpperCase()}</div>
+          <div className="status-line">
+            <Tag tone={receipt.published?'green':'yellow'}>{receipt.published?'PUBLISHED':'DRAFT'}</Tag>
+            <Tag tone={receipt.read?'green':'red'}>{receipt.read?'READ':'UNREAD'}</Tag>
+            <Tag tone={receipt.acknowledged?'green':'yellow'}>{receipt.acknowledged?'ACKNOWLEDGED':'AWAITING ACK'}</Tag>
+          </div>
+          <h4>Your mission</h4><p>{text||'No briefing text yet.'}</p>
+        </div>
+      </div>
+      <div className="card section">
+        <div className="section-head"><h3>Briefing delivery</h3><span>{stats.ack}/{stats.published||0} ACKNOWLEDGED</span></div>
+        <div className="brief-grid">{players.map(p=>{const b=op.briefingsByPlayer?.[p.id];return <button key={p.id} className="brief-row" onClick={()=>setPlayer(p.id)}><div className="avatar sm">{(p.name||'P').slice(0,1)}</div><div><b>{p.name}</b><small>{p.squad||'Unassigned'} · {p.role||'Rifleman'}</small></div><span className="status-line compact"><Tag tone={b?.published?'green':'red'}>{b?.published?'PUBLISHED':'PENDING'}</Tag><Tag tone={b?.acknowledged?'green':b?.read?'yellow':'red'}>{b?.acknowledged?'ACK':b?.read?'READ':'UNREAD'}</Tag></span></button>})}</div>
+      </div>
+    </>}
+  </div>
+}
 
 function Wiki({data,setData}){const [q,setQ]=useState(''); const [title,setTitle]=useState(''); const filtered=data.wiki.filter(r=>r.join(' ').toLowerCase().includes(q.toLowerCase())); function add(){if(!title.trim())return;setData(d=>({...d,wiki:[[title.trim(),'SOP',new Date().toISOString().slice(0,10),'Command'],...d.wiki]}));setTitle('')}return <><PageHead eyebrow="KNOWLEDGE BASE" title="CLAN WIKI" subtitle="REUSABLE MAPS · SOPs · TACTICS" actions={<button className="btn primary" onClick={add}><Plus size={15}/> NEW ARTICLE</button>}/><div className="grid g3"><Stat label="MAP PLAYBOOKS" value="12" sub="4 UPDATED THIS MONTH"/><Stat label="SOPs" value="27" sub="COMMAND / INF / ARMOR"/><Stat label="TACTICAL NOTES" value="83" sub="SEARCHABLE"/></div><div className="card section"><div className="toolbar"><div className="search"><Search size={14}/><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search knowledge base…"/></div><div className="add-inline"><input value={title} onChange={e=>setTitle(e.target.value)} placeholder="New article title"/><button className="btn" onClick={add}><Plus size={14}/></button></div></div><table className="table"><thead><tr><th>ARTICLE</th><th>CATEGORY</th><th>UPDATED</th><th>OWNER</th></tr></thead><tbody>{filtered.map((r,i)=><tr key={i}><td><b>{r[0]}</b></td><td><Tag>{r[1]}</Tag></td><td>{r[2]}</td><td>{r[3]}</td></tr>)}</tbody></table></div></>}
 
