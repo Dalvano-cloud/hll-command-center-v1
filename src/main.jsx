@@ -59,7 +59,7 @@ const DEFAULT_PHASES = [
 function makeOperation(op={}, index=0){
   const baseId=op.id || String(40+index+1).padStart(3,'0');
   return {
-    id:baseId, name:op.name||'New Operation', opponent:op.opponent||'TBD', map:op.map||'TBD', mode:op.mode||'Warfare',
+    id:baseId, dbId:op.dbId||null, name:op.name||'New Operation', opponent:op.opponent||'TBD', map:op.map||'TBD', mode:op.mode||'Warfare',
     date:op.date||new Date().toISOString().slice(0,10), time:op.time||'20:00', status:op.status||'draft',
     strategy:op.strategy||'draft', briefing:op.briefing||'0/0', attendance:op.attendance||'0/0', commander:op.commander||'Command',
     attendanceByPlayer:op.attendanceByPlayer||{}, squads:op.squads||[
@@ -180,7 +180,7 @@ async function loadRelationalOperations(clanId,baseData,members){
     const date=row.scheduled_at?new Date(row.scheduled_at).toISOString().slice(0,10):new Date().toISOString().slice(0,10);
     const time=row.scheduled_at?new Date(row.scheduled_at).toISOString().slice(11,16):'20:00';
     const commander=memberById[row.commander_id]?.name||'Command';
-    return makeOperation({id:String(row.number).padStart(3,'0'),name:row.name,opponent:row.opponent,map:row.map_name,mode:row.game_mode,date,time,status:row.status,strategy:row.strategy_status,commander,attendanceByPlayer,squads,strategyData:{intent:row.commander_intent||'',orders:row.global_orders||'',phases:phases.length?phases:DEFAULT_PHASES.map(p=>({...p,tasks:[]}))},stageMaps:stageMaps.length?stageMaps:DEFAULT_PHASES.map(p=>({phaseNo:p.no,name:p.name,markers:[]})),briefingsByPlayer:briefByOp[row.id]||{},aarData:aarByOp[row.id]||{}},i);
+    return makeOperation({id:String(row.number).padStart(3,'0'),dbId:row.id,name:row.name,opponent:row.opponent,map:row.map_name,mode:row.game_mode,date,time,status:row.status,strategy:row.strategy_status,commander,attendanceByPlayer,squads,strategyData:{intent:row.commander_intent||'',orders:row.global_orders||'',phases:phases.length?phases:DEFAULT_PHASES.map(p=>({...p,tasks:[]}))},stageMaps:stageMaps.length?stageMaps:DEFAULT_PHASES.map(p=>({phaseNo:p.no,name:p.name,markers:[]})),briefingsByPlayer:briefByOp[row.id]||{},aarData:aarByOp[row.id]||{}},i);
   });
   return {...baseData,ops:transformed,players:members};
 }
@@ -355,7 +355,14 @@ function MyOperation({data,setData,user,clan}){
     async function loadBriefing(){
       setServerBrief(null); setReceiptError('');
       if(!supabase||!op||!user?.id) return;
-      const {data:rows,error}=await supabase.from('briefings').select('id,operation_id,player_id,title,body,checklist,published_at').eq('operation_id',op.id).eq('player_id',user.id).eq('scope','individual').order('updated_at',{ascending:false}).limit(1);
+      let operationUuid = op.dbId || null;
+      if(!operationUuid && /^\d+$/.test(String(op.id))) {
+        const {data:opRow,error:opErr}=await supabase.from('operations').select('id').eq('clan_id',clan?.id).eq('number',Number(op.id)).maybeSingle();
+        if(opErr){if(!cancelled)setReceiptError(opErr.message);return;}
+        operationUuid=opRow?.id||null;
+      }
+      if(!operationUuid){ return; }
+      const {data:rows,error}=await supabase.from('briefings').select('id,operation_id,player_id,title,body,checklist,published_at').eq('operation_id',operationUuid).eq('player_id',user.id).eq('scope','individual').order('updated_at',{ascending:false}).limit(1);
       if(error){if(!cancelled)setReceiptError(error.message);return;}
       const b=rows?.[0];
       if(!b){if(!cancelled)setServerBrief(null);return;}
@@ -365,7 +372,7 @@ function MyOperation({data,setData,user,clan}){
     }
     loadBriefing();
     return ()=>{cancelled=true};
-  },[op?.id,user?.id]);
+  },[op?.id,op?.dbId,user?.id,clan?.id]);
 
   const brief=serverBrief || localBrief;
   const phase=(op?.strategyData?.phases||DEFAULT_PHASES).find(p=>p.status==='active')||(op?.strategyData?.phases||DEFAULT_PHASES).find(p=>p.intent)||DEFAULT_PHASES[0];
@@ -875,3 +882,4 @@ root.render(
     <App />
   </BrowserRouter>
 );
+
