@@ -78,76 +78,185 @@ function normalizeData(raw){
   return {...seed,...base,ops:(Array.isArray(base.ops)?base.ops:seed.ops).map((op,i)=>makeOperation(op,i)),players:Array.isArray(base.players)?base.players:seed.players,events:Array.isArray(base.events)?base.events:seed.events,briefings:base.briefings||{},strategy:base.strategy||seed.strategy,wiki:Array.isArray(base.wiki)?base.wiki:seed.wiki,aar:base.aar||seed.aar};
 }
 
+async function syncOperationRelations({clanId,user,role,op,players}){
+  if(!supabase || !clanId || !op) return;
+  const command=['commander','co'].includes(role);
+  const isPlayerRole=['player','recruit','squad_lead'].includes(role);
+  const number=Number(op.id);
+  if(!Number.isFinite(number)) return;
+  const scheduledAt=op.date ? `${op.date}T${op.time||'20:00'}:00` : null;
+  const baseRow={clan_id:clanId,number,name:op.name||'Untitled Operation',opponent:op.opponent||'',map_name:op.map||'',game_mode:op.mode||'Warfare',side:op.side||null,scheduled_at:scheduledAt,status:op.status||'draft',commander_id:players.find(p=>p.name===op.commander)?.memberUserId||user.id,strategy_status:op.strategyData?.intent?'ready':'draft',commander_intent:op.strategyData?.intent||'',global_orders:op.strategyData?.orders||'',created_by:user.id,updated_at:new Date().toISOString()};
+  const {data:opRow,error:opError}=await supabase.from('operations').upsert(baseRow,{onConflict:'clan_id,number'}).select('id,number').single();
+  if(opError) throw opError;
+  if(!opRow) return;
+
+  if(command){
+    const squadRows=(op.squads||[]).map(s=>({operation_id:opRow.id,name:s.name,color:s.color||null,squad_lead_id:players.find(p=>p.id===s.lead||p.memberUserId===s.lead||p.name===s.lead)?.memberUserId||null}));
+    if(squadRows.length){ const {error}=await supabase.from('squads').upsert(squadRows,{onConflict:'operation_id,name'}); if(error) throw error; }
+    const {data:dbSquads,error:sqErr}=await supabase.from('squads').select('id,name,squad_lead_id').eq('operation_id',opRow.id); if(sqErr) throw sqErr;
+    const squadIdByName=Object.fromEntries((dbSquads||[]).map(s=>[s.name,s.id]));
+    const {error:delAssign}=await supabase.from('roster_assignments').delete().eq('operation_id',opRow.id); if(delAssign) throw delAssign;
+    const assignments=players.filter(p=>p.memberUserId||p.id).map(p=>{
+      const squad=(op.squads||[]).find(s=>(s.playerIds||[]).includes(p.id));
+      return {operation_id:opRow.id,squad_id:squad?squadIdByName[squad.name]:null,user_id:p.memberUserId||p.id,role:p.role||'Rifleman',attendance:(op.attendanceByPlayer||{})[p.id]||'maybe',ready:p.status==='ready'};
+    });
+    if(assignments.length){ const {error}=await supabase.from('roster_assignments').insert(assignments); if(error) throw error; }
+
+    const {data:oldPhases}=await supabase.from('strategy_phases').select('id').eq('operation_id',opRow.id);
+    if(oldPhases?.length){ const {error}=await supabase.from('strategy_tasks').delete().in('phase_id',oldPhases.map(x=>x.id)); if(error) throw error; }
+    { const {error}=await supabase.from('strategy_phases').delete().eq('operation_id',opRow.id); if(error) throw error; }
+    const phaseRows=(op.strategyData?.phases||[]).map(p=>({operation_id:opRow.id,phase_no:p.no,title:p.name,summary:p.intent||'',status:p.intent?'ready':'draft'}));
+    if(phaseRows.length){ const {error}=await supabase.from('strategy_phases').insert(phaseRows); if(error) throw error; }
+    const {data:dbPhases,error:phErr}=await supabase.from('strategy_phases').select('id,phase_no').eq('operation_id',opRow.id); if(phErr) throw phErr;
+    const phaseIdByNo=Object.fromEntries((dbPhases||[]).map(x=>[String(x.phase_no),x.id]));
+    const taskRows=[];
+    for(const phase of (op.strategyData?.phases||[])) for(const task of (phase.tasks||[])) if(String(task).trim()) taskRows.push({phase_id:phaseIdByNo[String(phase.no)],title:String(task).trim(),details:null,priority:2});
+    if(taskRows.length){ const {error}=await supabase.from('strategy_tasks').insert(taskRows); if(error) throw error; }
+
+    const {data:oldMaps}=await supabase.from('stage_maps').select('id').eq('operation_id',opRow.id);
+    if(oldMaps?.length){ const {error}=await supabase.from('map_objects').delete().in('stage_map_id',oldMaps.map(x=>x.id)); if(error) throw error; }
+    { const {error}=await supabase.from('stage_maps').delete().eq('operation_id',opRow.id); if(error) throw error; }
+    const mapRows=(op.stageMaps||[]).map(m=>({operation_id:opRow.id,phase_no:m.phaseNo,name:m.name,map_image_url:m.mapImageUrl||null,version:m.version||1,published:!!m.published,created_by:user.id,updated_at:new Date().toISOString()}));
+    if(mapRows.length){ const {error}=await supabase.from('stage_maps').insert(mapRows); if(error) throw error; }
+    const {data:dbMaps,error:mapErr}=await supabase.from('stage_maps').select('id,phase_no').eq('operation_id',opRow.id); if(mapErr) throw mapErr;
+    const mapIdByPhase=Object.fromEntries((dbMaps||[]).map(x=>[String(x.phase_no),x.id]));
+    const objects=[];
+    for(const m of (op.stageMaps||[])) for(const marker of (m.markers||[])) objects.push({stage_map_id:mapIdByPhase[String(m.phaseNo)],object_type:marker.type||'objective',label:marker.label||'',x:Number(marker.x)||0,y:Number(marker.y)||0,width:null,height:null,rotation:0,squad_id:null,player_id:null,metadata:{}});
+    if(objects.length){ const {error}=await supabase.from('map_objects').insert(objects); if(error) throw error; }
+
+    { const {error}=await supabase.from('briefings').delete().eq('operation_id',opRow.id); if(error) throw error; }
+    const briefingRows=Object.entries(op.briefingsByPlayer||{}).map(([pid,b])=>({operation_id:opRow.id,scope:'individual',squad_id:null,player_id:pid,title:b?.title||'',body:b?.body||'',checklist:b?.checklist||[],published_at:b?.published?b.publishedAt||new Date().toISOString():null,updated_by:user.id,updated_at:new Date().toISOString()})).filter(x=>x.player_id);
+    if(briefingRows.length){ const {error}=await supabase.from('briefings').insert(briefingRows); if(error) throw error; }
+    if(op.aarData && Object.values(op.aarData).some(Boolean)){
+      const {error}=await supabase.from('aars').upsert({operation_id:opRow.id,result:op.aarData.result||null,score:op.aarData.score||null,worked:op.aarData.worked||null,failed:op.aarData.failed||null,lessons_learned:op.aarData.lessons?[op.aarData.lessons]:[],created_by:user.id,updated_at:new Date().toISOString()},{onConflict:'operation_id'}); if(error) throw error;
+    }
+  } else if(isPlayerRole){
+    const me=players.find(p=>p.memberUserId===user.id);
+    if(me){
+      const attendance=(op.attendanceByPlayer||{})[me.id]||'maybe';
+      const {data:existing}=await supabase.from('roster_assignments').select('squad_id,role,ready').eq('operation_id',opRow.id).eq('user_id',user.id).maybeSingle();
+      const {error}=await supabase.from('roster_assignments').upsert({operation_id:opRow.id,squad_id:existing?.squad_id||null,user_id:user.id,role:existing?.role||me.role||'Rifleman',attendance,ready:existing?.ready||false},{onConflict:'operation_id,user_id'}); if(error) throw error;
+    }
+  }
+}
+
+async function loadRelationalOperations(clanId,baseData,members){
+  if(!supabase || !clanId) return {...baseData,players:members};
+  const {data:ops,error:opError}=await supabase.from('operations').select('*').eq('clan_id',clanId).order('number',{ascending:false});
+  if(opError) throw opError;
+  if(!ops?.length) return {...baseData,players:members};
+  const opIds=ops.map(o=>o.id);
+  const [sq,ra,ph,sm,bf,aar]=await Promise.all([
+    supabase.from('squads').select('*').in('operation_id',opIds),
+    supabase.from('roster_assignments').select('*').in('operation_id',opIds),
+    supabase.from('strategy_phases').select('*').in('operation_id',opIds).order('phase_no'),
+    supabase.from('stage_maps').select('*').in('operation_id',opIds).order('phase_no'),
+    supabase.from('briefings').select('*').in('operation_id',opIds),
+    supabase.from('aars').select('*').in('operation_id',opIds)
+  ]);
+  for(const r of [sq,ra,ph,sm,bf,aar]) if(r.error) throw r.error;
+  const memberById=Object.fromEntries(members.map(m=>[m.id,m]));
+  const squadByOp={}; for(const row of sq.data||[]) (squadByOp[row.operation_id]??=[]).push(row);
+  const assignByOp={}; for(const row of ra.data||[]) (assignByOp[row.operation_id]??=[]).push(row);
+  const phaseByOp={}; for(const row of ph.data||[]) (phaseByOp[row.operation_id]??=[]).push({...row,tasks:[]});
+  const mapByOp={}; for(const row of sm.data||[]) (mapByOp[row.operation_id]??=[]).push({...row,markers:[]});
+  const briefByOp={}; for(const row of bf.data||[]) ((briefByOp[row.operation_id]??={})[row.player_id]={title:row.title||'',body:row.body||'',checklist:row.checklist||[],published:!!row.published_at,publishedAt:row.published_at||null});
+  const aarByOp=Object.fromEntries((aar.data||[]).map(row=>[row.operation_id,{result:row.result||'',score:row.score||'',worked:row.worked||'',failed:row.failed||'',lessons:Array.isArray(row.lessons_learned)?row.lessons_learned.join('\n'):''}]));
+  const taskRows=await supabase.from('strategy_tasks').select('*').in('phase_id',(ph.data||[]).map(x=>x.id)); if(taskRows.error) throw taskRows.error;
+  const tasksByPhase={}; for(const row of taskRows.data||[]) (tasksByPhase[row.phase_id]??=[]).push(row.title);
+  const objectRows=await supabase.from('map_objects').select('*').in('stage_map_id',(sm.data||[]).map(x=>x.id)); if(objectRows.error) throw objectRows.error;
+  const markersByMap={}; for(const row of objectRows.data||[]) (markersByMap[row.stage_map_id]??=[]).push({id:row.id,label:row.label||'',x:Number(row.x)||0,y:Number(row.y)||0,type:row.object_type||'objective'});
+  const transformed=ops.map((row,i)=>{
+    const assigns=assignByOp[row.id]||[];
+    const squads=(squadByOp[row.id]||[]).map(s=>({id:s.id,name:s.name,lead:s.squad_lead_id||'',playerIds:assigns.filter(a=>a.squad_id===s.id).map(a=>a.user_id)}));
+    const attendanceByPlayer=Object.fromEntries(assigns.map(a=>[a.user_id,a.attendance]));
+    const playerSquadById=Object.fromEntries(assigns.map(a=>[a.user_id,squadByOp[row.id]?.find(s=>s.id===a.squad_id)?.name||'Unassigned']));
+    const phases=(phaseByOp[row.id]||[]).map(p=>({...p,id:`p${p.phase_no}`,no:p.phase_no,name:p.title,intent:p.summary||'',tasks:tasksByPhase[p.id]||[]}));
+    const stageMaps=(mapByOp[row.id]||[]).map(m=>({phaseNo:m.phase_no,name:m.name,mapImageUrl:m.map_image_url,version:m.version,published:m.published,markers:markersByMap[m.id]||[]}));
+    const date=row.scheduled_at?new Date(row.scheduled_at).toISOString().slice(0,10):new Date().toISOString().slice(0,10);
+    const time=row.scheduled_at?new Date(row.scheduled_at).toISOString().slice(11,16):'20:00';
+    const commander=memberById[row.commander_id]?.name||'Command';
+    return makeOperation({id:String(row.number).padStart(3,'0'),name:row.name,opponent:row.opponent,map:row.map_name,mode:row.game_mode,date,time,status:row.status,strategy:row.strategy_status,commander,attendanceByPlayer,squads,strategyData:{intent:row.commander_intent||'',orders:row.global_orders||'',phases:phases.length?phases:DEFAULT_PHASES.map(p=>({...p,tasks:[]}))},stageMaps:stageMaps.length?stageMaps:DEFAULT_PHASES.map(p=>({phaseNo:p.no,name:p.name,markers:[]})),briefingsByPlayer:briefByOp[row.id]||{},aarData:aarByOp[row.id]||{}},i);
+  });
+  return {...baseData,ops:transformed,players:members};
+}
+
+function buildMemberPlayers(members){
+  return members.map(m=>({id:m.id,memberUserId:m.id,name:m.name,squad:'Unassigned',role:m.primary_role||m.role||'Rifleman',status:'ready'}));
+}
+
 function useClanStore(user){
   const [data,setData]=useState(seed);
   const [clan,setClan]=useState(null);
   const [loading,setLoading]=useState(!!supabase);
   const [error,setError]=useState('');
   const [needsOnboarding,setNeedsOnboarding]=useState(false);
+  const [hydrated,setHydrated]=useState(false);
 
   useEffect(()=>{
     let cancelled=false;
     (async()=>{
       if(!supabase){
         const local=JSON.parse(localStorage.getItem('hll-command-data')||'null');
-        if(!cancelled){setData(normalizeData(local||seed));setClan({id:'demo-clan',name:'HLL Demo Clan',tag:'DEMO',role:'commander'});setLoading(false);}
+        if(!cancelled){setData(normalizeData(local||seed));setClan({id:'demo-clan',name:'HLL Demo Clan',tag:'DEMO',role:'commander'});setLoading(false);setHydrated(true);}
         return;
       }
-      setLoading(true);
-      const {data:member,error:memberError}=await supabase
-        .from('clan_members')
-        .select('clan_id,role,callsign,clans(id,name,tag,invite_code)')
-        .eq('user_id',user.id).eq('active',true).limit(1).maybeSingle();
+      setLoading(true); setHydrated(false);
+      const {data:member,error:memberError}=await supabase.from('clan_members').select('clan_id,role,callsign,primary_role,clans(id,name,tag,invite_code)').eq('user_id',user.id).eq('active',true).limit(1).maybeSingle();
       if(memberError){ if(!cancelled){setError(memberError.message);setLoading(false);} return; }
-      if(!member){ if(!cancelled){setNeedsOnboarding(true);setLoading(false);} return; }
+      if(!member){ if(!cancelled){setNeedsOnboarding(true);setLoading(false);setHydrated(true);} return; }
+      const {data:memberRows,error:membersError}=await supabase.from('clan_members').select('id,user_id,callsign,primary_role,role,active,profiles(display_name)').eq('clan_id',member.clan_id).eq('active',true).order('created_at');
+      if(membersError){ if(!cancelled){setError(membersError.message);setLoading(false);} return; }
+      const members=(memberRows||[]).map(m=>({id:m.user_id,name:m.callsign||m.profiles?.display_name||'Player',primary_role:m.primary_role,role:m.role}));
+      const cloudPlayers=buildMemberPlayers(members);
       const clanInfo={id:member.clan_id,name:member.clans?.name||'Clan',tag:member.clans?.tag||'',inviteCode:member.clans?.invite_code||'',role:member.role,callsign:member.callsign||user.user_metadata?.name||user.email?.split('@')[0]||'Player'};
       const {data:row,error:stateError}=await supabase.from('clan_app_state').select('data').eq('clan_id',member.clan_id).maybeSingle();
       if(stateError){ if(!cancelled){setError(stateError.message);setLoading(false);} return; }
-      if(!cancelled){setClan(clanInfo);setData(normalizeData(row?.data || seed));setNeedsOnboarding(false);setLoading(false);}
+      try{
+        const base=normalizeData(row?.data || {...seed,players:cloudPlayers});
+        const merged=await loadRelationalOperations(member.clan_id,base,cloudPlayers);
+        if(!cancelled){setClan(clanInfo);setData(merged);setNeedsOnboarding(false);setLoading(false);setHydrated(true);}
+      }catch(loadError){ if(!cancelled){setError(loadError.message||String(loadError));setLoading(false);setHydrated(true);} }
     })();
     return ()=>{cancelled=true};
   },[user?.id]);
 
   useEffect(()=>{
-    if(!clan || loading) return;
+    if(!clan || loading || !hydrated) return;
     const timer=setTimeout(async()=>{
       if(!supabase){localStorage.setItem('hll-command-data',JSON.stringify(data));return;}
       const {error:upsertError}=await supabase.from('clan_app_state').upsert({clan_id:clan.id,data,updated_at:new Date().toISOString()},{onConflict:'clan_id'});
-      if(upsertError) setError(upsertError.message);
-    },350);
+      if(upsertError){setError(upsertError.message);return;}
+      try{
+        for(const op of data.ops||[]) await syncOperationRelations({clanId:clan.id,user,role:clan.role,op,players:data.players||[]});
+      }catch(syncError){setError(syncError.message||String(syncError));}
+    },900);
     return ()=>clearTimeout(timer);
-  },[data,clan?.id]);
+  },[data,clan?.id,clan?.role,hydrated,user?.id]);
 
   useEffect(()=>{
     if(!supabase || !clan?.id) return;
     const channel=supabase.channel(`clan-state-${clan.id}`)
-      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'clan_app_state',filter:`clan_id=eq.${clan.id}`},payload=>{
-        if(payload.new?.data) setData(payload.new.data);
-      }).subscribe();
-    return ()=>{ supabase.removeChannel(channel); };
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'clan_app_state',filter:`clan_id=eq.${clan.id}`},payload=>{if(payload.new?.data) setData(normalizeData(payload.new.data));})
+      .subscribe();
+    return ()=>{supabase.removeChannel(channel)};
   },[clan?.id]);
 
   async function createClan(name,tag){
-    if(!supabase) { setClan({id:'demo-clan',name,tag,inviteCode:'demo1234',role:'commander',callsign: user.user_metadata?.name || user.email?.split('@')[0] || 'Player'}); setNeedsOnboarding(false); return; }
-    const {data:clanRow,error:clanError}=await supabase.from('clans').insert({name,tag,created_by:user.id}).select().single();
-    if(clanError) throw clanError;
-    const {error:memberError}=await supabase.from('clan_members').insert({clan_id:clanRow.id,user_id:user.id,role:'commander',callsign:user.user_metadata?.name||user.email?.split('@')[0]});
-    if(memberError) throw memberError;
-    const {error:stateError}=await supabase.from('clan_app_state').insert({clan_id:clanRow.id,data:seed});
-    if(stateError) throw stateError;
-    setClan({id:clanRow.id,name:clanRow.name,tag:clanRow.tag,inviteCode:clanRow.invite_code||'',role:'commander',callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'}); setData(seed); setNeedsOnboarding(false);
+    if(!supabase) {setClan({id:'demo-clan',name,tag,inviteCode:'demo1234',role:'commander',callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'});setNeedsOnboarding(false);return;}
+    const {data:clanRow,error:clanError}=await supabase.from('clans').insert({name,tag,created_by:user.id}).select().single(); if(clanError) throw clanError;
+    const callsign=user.user_metadata?.name||user.email?.split('@')[0]||'Player';
+    const {error:memberError}=await supabase.from('clan_members').insert({clan_id:clanRow.id,user_id:user.id,role:'commander',callsign}); if(memberError) throw memberError;
+    const empty={...seed,ops:[],events:[],players:[{id:user.id,memberUserId:user.id,name:callsign,squad:'Unassigned',role:'Commander',status:'ready'}],briefings:{},wiki:[],aar:{}};
+    const {error:stateError}=await supabase.from('clan_app_state').insert({clan_id:clanRow.id,data:empty}); if(stateError) throw stateError;
+    setClan({id:clanRow.id,name:clanRow.name,tag:clanRow.tag,inviteCode:clanRow.invite_code||'',role:'commander',callsign}); setData(empty); setNeedsOnboarding(false); setHydrated(true);
   }
   async function joinClan(inviteCode){
-    if(!supabase){ setClan({id:'demo-clan',name:'HLL Demo Clan',tag:'DEMO',inviteCode:'demo1234',role:'player',callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'}); setNeedsOnboarding(false); return; }
-    const {data:joined,error:joinError}=await supabase.rpc('join_clan_by_invite',{p_code:inviteCode});
-    if(joinError) throw joinError;
-    const row=Array.isArray(joined)?joined[0]:joined;
-    if(!row?.clan_id) throw new Error('Could not join clan.');
-    const {data:stateRow,error:stateError}=await supabase.from('clan_app_state').select('data').eq('clan_id',row.clan_id).maybeSingle();
-    if(stateError) throw stateError;
-    setClan({id:row.clan_id,name:row.clan_name,tag:row.clan_tag,inviteCode:inviteCode,role:row.member_role,callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'});
-    setData(normalizeData(stateRow?.data || seed));
-    setNeedsOnboarding(false);
+    if(!supabase){setClan({id:'demo-clan',name:'HLL Demo Clan',tag:'DEMO',inviteCode:'demo1234',role:'player',callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'});setNeedsOnboarding(false);return;}
+    const {data:joined,error:joinError}=await supabase.rpc('join_clan_by_invite',{p_code:inviteCode}); if(joinError) throw joinError;
+    const row=Array.isArray(joined)?joined[0]:joined; if(!row?.clan_id) throw new Error('Could not join clan.');
+    const {data:stateRow,error:stateError}=await supabase.from('clan_app_state').select('data').eq('clan_id',row.clan_id).maybeSingle(); if(stateError) throw stateError;
+    setClan({id:row.clan_id,name:row.clan_name,tag:row.clan_tag,inviteCode:inviteCode,role:row.member_role,callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'}); setData(normalizeData(stateRow?.data||seed)); setNeedsOnboarding(false); setHydrated(true);
   }
   return {data,setData,clan,setClan,loading,error,needsOnboarding,createClan,joinClan};
 }
@@ -231,7 +340,7 @@ function MyOperation({data,setData,user,clan}){
   const op=data.ops.find(o=>o.status==='active')||data.ops[0];
   const player=currentPlayer(data,user,clan);
   const status=player&&op?(op.attendanceByPlayer||{})[player.id]||'pending':'pending';
-  const squad=player?player.squad:'Unassigned';
+  const squad=player?playerSquadForOperation(op,player.id):'Unassigned';
   const brief=player?(op?.briefingsByPlayer||{})[player.id]:null;
   const phase=(op?.strategyData?.phases||DEFAULT_PHASES).find(p=>p.intent)||DEFAULT_PHASES[0];
   if(!op) return <div className="card"><h2>NO ACTIVE OPERATION</h2><p className="subtitle">Your commander has not created an operation yet.</p><button className="btn" onClick={()=>navigate('/operations')}>OPEN OPERATIONS</button></div>;
@@ -315,6 +424,11 @@ function currentPlayer(data,user,clan){
   return data.players.find(p=>p.memberUserId===user?.id)||data.players.find(p=>p.name===clan?.callsign)||null;
 }
 
+function playerSquadForOperation(op,pid){
+  const s=(op?.squads||[]).find(q=>(q.playerIds||[]).includes(pid));
+  return s?.name || 'Unassigned';
+}
+
 function OperationAttendance({op,data,setData,user,clan}){
   const player=currentPlayer(data,user,clan); const [name,setName]=useState(clan?.callsign||user?.email?.split('@')[0]||'Player');
   function join(){
@@ -324,7 +438,7 @@ function OperationAttendance({op,data,setData,user,clan}){
   }
   const statuses=op.attendanceByPlayer||{};
   const roster=data.players.filter(p=>p.memberUserId||statuses[p.id]);
-  return <div className="grid g2"><div className="card form"><div className="eyebrow">YOUR RESPONSE</div><h2>ATTENDANCE</h2><p className="subtitle">Confirm whether you will attend this operation.</p>{!player&&<label className="field"><span>IN-GAME NAME</span><input value={name} onChange={e=>setName(e.target.value)}/></label>}<div className="actions"><button className="btn primary" onClick={join}>GOING</button><button className="btn" onClick={()=>joinStatus('maybe')}>MAYBE</button><button className="btn" onClick={()=>joinStatus('declined')}>DECLINE</button></div><div className="callout"><Check size={15}/> Your response is saved to this operation.</div></div><div className="card"><div className="section-head"><h3>Attendance board</h3><span>{Object.values(statuses).filter(s=>s==='going').length} GOING</span></div><table className="table"><thead><tr><th>PLAYER</th><th>SQUAD</th><th>RESPONSE</th></tr></thead><tbody>{roster.map(p=><tr key={p.id}><td><b>{p.name}</b></td><td>{p.squad}</td><td><Tag tone={statuses[p.id]==='going'?'green':statuses[p.id]==='declined'?'red':'yellow'}>{(statuses[p.id]||'PENDING').toUpperCase()}</Tag></td></tr>)}</tbody></table></div></div>;
+  return <div className="grid g2"><div className="card form"><div className="eyebrow">YOUR RESPONSE</div><h2>ATTENDANCE</h2><p className="subtitle">Confirm whether you will attend this operation.</p>{!player&&<label className="field"><span>IN-GAME NAME</span><input value={name} onChange={e=>setName(e.target.value)}/></label>}<div className="actions"><button className="btn primary" onClick={join}>GOING</button><button className="btn" onClick={()=>joinStatus('maybe')}>MAYBE</button><button className="btn" onClick={()=>joinStatus('declined')}>DECLINE</button></div><div className="callout"><Check size={15}/> Your response is saved to this operation.</div></div><div className="card"><div className="section-head"><h3>Attendance board</h3><span>{Object.values(statuses).filter(s=>s==='going').length} GOING</span></div><table className="table"><thead><tr><th>PLAYER</th><th>SQUAD</th><th>RESPONSE</th></tr></thead><tbody>{roster.map(p=><tr key={p.id}><td><b>{p.name}</b></td><td>{playerSquadForOperation(op,p.id)}</td><td><Tag tone={statuses[p.id]==='going'?'green':statuses[p.id]==='declined'?'red':'yellow'}>{(statuses[p.id]||'PENDING').toUpperCase()}</Tag></td></tr>)}</tbody></table></div></div>;
   function joinStatus(status){ let pid=player?.id; if(!pid){pid=crypto.randomUUID?.()||Math.random().toString(36).slice(2); setData(d=>({...d,players:[...d.players,{id:pid,memberUserId:user.id,name:name.trim()||'Player',squad:'Unassigned',role:'Rifleman',status:'ready'}]}));} setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?{...x,attendanceByPlayer:{...(x.attendanceByPlayer||{}),[pid]:status}}:x)})); }
 }
 
@@ -334,22 +448,9 @@ function OperationSquads({op,data,setData,clan}){
 
   function assign(pid,sid){
     if(!manage)return;
-    const squadName=squads.find(s=>s.id===sid)?.name||'Unassigned';
     setData(d=>({
       ...d,
-      ops:d.ops.map(x=>{
-        if(x.id!==op.id)return x;
-        return {
-          ...x,
-          squads:(x.squads||[]).map(s=>({
-            ...s,
-            playerIds:s.id===sid
-              ? [...new Set([...(s.playerIds||[]),pid])]
-              : (s.playerIds||[]).filter(id=>id!==pid)
-          }))
-        };
-      }),
-      players:d.players.map(p=>p.id===pid?{...p,squad:squadName}:p)
+      ops:d.ops.map(x=>x.id!==op.id?x:{...x,squads:(x.squads||[]).map(s=>({...s,playerIds:s.id===sid?[...new Set([...(s.playerIds||[]),pid])]:(s.playerIds||[]).filter(id=>id!==pid)}))})
     }));
   }
 
@@ -408,7 +509,7 @@ function OperationSquads({op,data,setData,clan}){
             {data.players.map(p=>(
               <tr key={p.id}>
                 <td><b>{p.name}</b><small>{p.role}</small></td>
-                <td>{p.squad||'Unassigned'}</td>
+                <td>{playerSquadForOperation(op,p.id)}</td>
                 <td>
                   <select value={squads.find(s=>s.name===p.squad)?.id||''} onChange={e=>assign(p.id,e.target.value)}>
                     <option value="">Unassigned</option>
@@ -429,7 +530,7 @@ function OperationStrategy({op,setData}){const local=op.strategyData||{intent:''
 function OperationStageMaps({op,setData}){const maps=op.stageMaps||DEFAULT_PHASES.map(p=>({phaseNo:p.no,name:p.name,markers:[]})); const [phase,setPhase]=useState(1); const current=maps.find(m=>m.phaseNo===phase)||maps[0]; function setMap(patch){setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?{...x,stageMaps:x.stageMaps.map(m=>m.phaseNo===current.phaseNo?{...m,...patch}:m)}:x)}));} function addMarker(){const markers=[...(current.markers||[]),{id:crypto.randomUUID?.()||Math.random().toString(36).slice(2),label:`M${(current.markers||[]).length+1}`,x:50,y:50,type:'objective'}];setMap({markers});} function move(i,x,y){setMap({markers:current.markers.map((m,n)=>n===i?{...m,x,y}:m)});} return <div><PageHead eyebrow={`OPERATION #${op.id}`} title="STAGE MAPS" subtitle="BUILD THE PLAN PHASE BY PHASE" actions={<button className="btn primary" onClick={addMarker}><Plus size={15}/> ADD MARKER</button>}/><div className="tabs">{maps.map(m=><button key={m.phaseNo} className={phase===m.phaseNo?'active':''} onClick={()=>setPhase(m.phaseNo)}>{String(m.phaseNo).padStart(2,'0')} {m.name}</button>)}</div><div className="card map-wrap"><OperationMapCanvas map={current} onMove={move}/></div><div className="grid g3 section"><Stat label="MARKERS" value={current.markers?.length||0} sub="TACTICAL OBJECTS"/><Stat label="PHASE" value={String(current.phaseNo).padStart(2,'0')} sub={current.name}/><Stat label="STATUS" value={current.markers?.length?'READY':'DRAFT'} sub="SAVED TO OPERATION"/></div></div>}
 function OperationMapCanvas({map,onMove}){const [drag,setDrag]=useState(null); return <div className="tactical-map" onPointerMove={e=>{if(drag===null)return;const r=e.currentTarget.getBoundingClientRect();const x=Math.max(2,Math.min(96,(e.clientX-r.left)/r.width*100));const y=Math.max(2,Math.min(96,(e.clientY-r.top)/r.height*100));onMove(drag,x,y)}} onPointerUp={()=>setDrag(null)}><div className="grid-overlay"/><div className="zone friendly"/><div className="zone contested"/><div className="zone rear"/><div className="river"/><div className="road road-a"/><div className="road road-b"/>{(map.markers||[]).map((m,i)=><div className="marker yellow" key={m.id} style={{left:`${m.x}%`,top:`${m.y}%`}} onPointerDown={()=>setDrag(i)}>{m.label}</div>)}<div className="legend"><span><i className="lg friend"/>FRIENDLY</span><span><i className="lg enemy"/>ENEMY</span><span><i className="lg obj"/>OBJECTIVE</span></div><div className="map-grid-label">GRID // OP-{map.phaseNo} · {map.name}</div></div>}
 
-function OperationBriefings({op,data,setData,user}){const ids=data.players.map(p=>p.id); const [pid,setPid]=useState(ids[0]||''); const player=data.players.find(p=>p.id===pid)||data.players[0]; const existing=op.briefingsByPlayer?.[pid]||{title:'Mission briefing',body:'',checklist:['Know your route','Confirm role with SL','Report contact with grid'],published:false}; function update(patch){setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?{...x,briefingsByPlayer:{...(x.briefingsByPlayer||{}),[pid]:{...existing,...patch}}}:x)}));} function publish(){update({published:true,publishedAt:new Date().toISOString()});} return <div><PageHead eyebrow={`OPERATION #${op.id}`} title="INDIVIDUAL BRIEFINGS" subtitle="ONE BRIEF PER PLAYER" actions={<button className="btn primary" onClick={publish}><Save size={15}/> PUBLISH BRIEFING</button>}/><div className="grid g2"><div className="card form"><label className="field"><span>PLAYER</span><select value={pid} onChange={e=>setPid(e.target.value)}>{data.players.map(p=><option key={p.id} value={p.id}>{p.name} · {p.squad} · {p.role}</option>)}</select></label><Input label="TITLE" value={existing.title} onChange={v=>update({title:v})}/><label className="field"><span>MISSION</span><textarea value={existing.body} onChange={e=>update({body:e.target.value})} placeholder="What this player must do, where, and when…"/></label><div className="checklist"><span className="field-title">CHECKLIST</span>{existing.checklist.map((c,i)=><label key={i}><input type="checkbox" defaultChecked={false}/><span>{c}</span></label>)}</div></div><div className="card brief"><div className="eyebrow">PLAYER VIEW</div><h2>{player?.name||'PLAYER'}</h2><div className="subtitle">{player?.squad||'UNASSIGNED'} · {player?.role||'RIFLEMAN'}</div><Tag tone={existing.published?'green':'yellow'}>{existing.published?'PUBLISHED':'DRAFT'}</Tag><h4>{existing.title}</h4><p>{existing.body||'No individual briefing written yet.'}</p><div className="callout"><MessageSquare size={15}/> This is the exact briefing shown to the player.</div></div></div><div className="card section"><div className="section-head"><h3>Briefing coverage</h3><span>{data.players.filter(p=>op.briefingsByPlayer?.[p.id]?.published).length}/{data.players.length}</span></div><table className="table"><thead><tr><th>PLAYER</th><th>SQUAD</th><th>STATUS</th></tr></thead><tbody>{data.players.map(p=><tr key={p.id}><td><b>{p.name}</b></td><td>{p.squad}</td><td><Tag tone={op.briefingsByPlayer?.[p.id]?.published?'green':'red'}>{op.briefingsByPlayer?.[p.id]?.published?'PUBLISHED':'PENDING'}</Tag></td></tr>)}</tbody></table></div></div>}
+function OperationBriefings({op,data,setData,user}){const ids=data.players.map(p=>p.id); const [pid,setPid]=useState(ids[0]||''); const player=data.players.find(p=>p.id===pid)||data.players[0]; const existing=op.briefingsByPlayer?.[pid]||{title:'Mission briefing',body:'',checklist:['Know your route','Confirm role with SL','Report contact with grid'],published:false}; function update(patch){setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?{...x,briefingsByPlayer:{...(x.briefingsByPlayer||{}),[pid]:{...existing,...patch}}}:x)}));} function publish(){update({published:true,publishedAt:new Date().toISOString()});} return <div><PageHead eyebrow={`OPERATION #${op.id}`} title="INDIVIDUAL BRIEFINGS" subtitle="ONE BRIEF PER PLAYER" actions={<button className="btn primary" onClick={publish}><Save size={15}/> PUBLISH BRIEFING</button>}/><div className="grid g2"><div className="card form"><label className="field"><span>PLAYER</span><select value={pid} onChange={e=>setPid(e.target.value)}>{data.players.map(p=><option key={p.id} value={p.id}>{p.name} · {playerSquadForOperation(op,p.id)} · {p.role}</option>)}</select></label><Input label="TITLE" value={existing.title} onChange={v=>update({title:v})}/><label className="field"><span>MISSION</span><textarea value={existing.body} onChange={e=>update({body:e.target.value})} placeholder="What this player must do, where, and when…"/></label><div className="checklist"><span className="field-title">CHECKLIST</span>{existing.checklist.map((c,i)=><label key={i}><input type="checkbox" defaultChecked={false}/><span>{c}</span></label>)}</div></div><div className="card brief"><div className="eyebrow">PLAYER VIEW</div><h2>{player?.name||'PLAYER'}</h2><div className="subtitle">{player?.squad||'UNASSIGNED'} · {player?.role||'RIFLEMAN'}</div><Tag tone={existing.published?'green':'yellow'}>{existing.published?'PUBLISHED':'DRAFT'}</Tag><h4>{existing.title}</h4><p>{existing.body||'No individual briefing written yet.'}</p><div className="callout"><MessageSquare size={15}/> This is the exact briefing shown to the player.</div></div></div><div className="card section"><div className="section-head"><h3>Briefing coverage</h3><span>{data.players.filter(p=>op.briefingsByPlayer?.[p.id]?.published).length}/{data.players.length}</span></div><table className="table"><thead><tr><th>PLAYER</th><th>SQUAD</th><th>STATUS</th></tr></thead><tbody>{data.players.map(p=><tr key={p.id}><td><b>{p.name}</b></td><td>{playerSquadForOperation(op,p.id)}</td><td><Tag tone={op.briefingsByPlayer?.[p.id]?.published?'green':'red'}>{op.briefingsByPlayer?.[p.id]?.published?'PUBLISHED':'PENDING'}</Tag></td></tr>)}</tbody></table></div></div>}
 
 function OperationAAR({op,setData}){const a=op.aarData||{}; function upd(p){setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?{...x,aarData:{...a,...p}}:x)}));} return <div><PageHead eyebrow={`OPERATION #${op.id}`} title="AFTER ACTION REVIEW" subtitle="CAPTURE LESSONS FOR THE NEXT MATCH"/><div className="grid g4"><Stat label="RESULT" value={a.result||'—'} sub={a.score||'SCORE'}/><Stat label="LESSONS" value={a.lessons?'READY':'DRAFT'} sub="COMMAND NOTES"/><Stat label="WORKED" value={a.worked?'FILLED':'EMPTY'} sub="POSITIVE"/><Stat label="FAILED" value={a.failed?'FILLED':'EMPTY'} sub="IMPROVE"/></div><div className="grid g2 section"><div className="card form"><label className="field"><span>RESULT</span><select value={a.result||''} onChange={e=>upd({result:e.target.value})}><option value="">Select</option><option>WIN</option><option>LOSS</option><option>DRAW</option></select></label><Input label="SCORE" value={a.score||''} onChange={v=>upd({score:v})} placeholder="4 — 2"/><label className="field"><span>WHAT WORKED?</span><textarea value={a.worked||''} onChange={e=>upd({worked:e.target.value})}/></label><label className="field"><span>WHAT FAILED?</span><textarea value={a.failed||''} onChange={e=>upd({failed:e.target.value})}/></label><label className="field"><span>LESSONS FOR NEXT OP</span><textarea value={a.lessons||''} onChange={e=>upd({lessons:e.target.value})}/></label></div><div className="card brief"><div className="eyebrow">COMMAND SUMMARY</div><h2>{a.result||'OPERATION COMPLETE'}</h2><p>{a.worked||'Document what the clan did well.'}</p><p>{a.failed||'Document what must change.'}</p><div className="callout"><Archive size={15}/> The AAR stays attached to operation #{op.id}.</div></div></div></div>}
 
@@ -543,4 +644,3 @@ function Wiki({data,setData}){const [q,setQ]=useState(''); const [title,setTitle
 function AAR({data,setData,embedded=false}){const [local,setLocal]=useState(data.aar);function save(){setData(d=>({...d,aar:local}));alert('AAR saved.');}return <div className={embedded?'embedded':''}>{!embedded&&<PageHead eyebrow="POST-MATCH" title="AFTER ACTION REVIEW" subtitle="CAPTURE LESSONS → IMPROVE THE NEXT OPERATION" actions={<button className="btn primary" onClick={save}><Save size={15}/> SAVE AAR</button>}/>}<div className="grid g4"><Stat label="RESULT" value={local.result} sub={local.score} trend/><Stat label="ATTENDANCE" value="24/25" sub="96%"/><Stat label="GARRISON SCORE" value="8/10" sub="GOOD"/><Stat label="COMMS" value="7/10" sub="IMPROVE"/></div><div className="grid g2 section"><div className="card form"><label className="field"><span>WHAT WORKED?</span><textarea value={local.worked} onChange={e=>setLocal(x=>({...x,worked:e.target.value}))}/></label><label className="field"><span>WHAT FAILED?</span><textarea value={local.failed} onChange={e=>setLocal(x=>({...x,failed:e.target.value}))}/></label></div><div className="card"><div className="section-head"><h3>Squad evaluation</h3></div><table className="table"><tbody>{[['Alpha','9/10','EXCELLENT','green'],['Bravo','7/10','ROTATION','yellow'],['Charlie','8/10','SOLID','green'],['Delta','6/10','COMMS','red']].map(([a,b,c,t])=><tr key={a}><td>{a}</td><td>{b}</td><td><Tag tone={t}>{c}</Tag></td></tr>)}</tbody></table></div></div></div>}
 
 createRoot(document.getElementById('root')).render(<BrowserRouter><App/></BrowserRouter>);
-
