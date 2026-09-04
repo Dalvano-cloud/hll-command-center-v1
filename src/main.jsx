@@ -393,6 +393,46 @@ function Operations({data,setData,clan}){
   </>
 }
 
+
+function operationReadiness(op,data){
+  const players=(data.players||[]).filter(p=>p.memberUserId||p.id);
+  const attendance=op?.attendanceByPlayer||{};
+  const going=players.filter(p=>attendance[p.id]==='going');
+  const responded=players.filter(p=>attendance[p.id]);
+  const squads=op?.squads||[];
+  const assignedIds=new Set(squads.flatMap(s=>s.playerIds||[]));
+  const phases=op?.strategyData?.phases||[];
+  const maps=op?.stageMaps||[];
+  const briefs=op?.briefingsByPlayer||{};
+  const checks=[
+    {key:'attendance',label:'PLAYER READINESS',detail:`${responded.length}/${players.length} responded`,ok:players.length>0&&responded.length===players.length},
+    {key:'squads',label:'SQUAD ASSIGNMENT',detail:`${going.filter(p=>assignedIds.has(p.id)).length}/${going.length||0} going players assigned`,ok:going.length>0&&going.every(p=>assignedIds.has(p.id))},
+    {key:'strategy',label:'STRATEGY',detail:`${phases.filter(p=>p.intent&&p.tasks?.length).length}/${phases.length||4} phases ready`,ok:!!op?.strategyData?.intent&&!!op?.strategyData?.orders&&phases.length>=4&&phases.every(p=>p.intent&&p.tasks?.length)},
+    {key:'maps',label:'STAGE MAPS',detail:`${maps.filter(m=>(m.markers||[]).length).length}/${maps.length||4} phases mapped`,ok:maps.length>=4&&maps.every(m=>(m.markers||[]).length>0)},
+    {key:'briefings',label:'BRIEFINGS',detail:`${going.filter(p=>briefs[p.id]?.published).length}/${going.length||0} published`,ok:going.length>0&&going.every(p=>briefs[p.id]?.published)}
+  ];
+  const ready=checks.filter(c=>c.ok).length;
+  return {checks,percent:Math.round((ready/checks.length)*100)};
+}
+
+function OperationReadiness({op,data,command,onActivate}){
+  const r=operationReadiness(op,data);
+  return <div className="card section readiness-card">
+    <div className="section-head"><div><h3>Deployment readiness</h3><small>COMMAND GATE · OPERATION WORKFLOW</small></div><Tag tone={r.percent===100?'green':r.percent>=60?'yellow':'red'}>{r.percent}% READY</Tag></div>
+    <div className="readiness-bar"><span style={{width:`${r.percent}%`}}/></div>
+    <div className="readiness-grid">
+      {r.checks.map(c=><div className={`readiness-item ${c.ok?'ok':'pending'}`} key={c.key}>
+        <div className="readiness-icon">{c.ok?'✓':'!'}</div>
+        <div><b>{c.label}</b><small>{c.detail}</small></div>
+        <Tag tone={c.ok?'green':'yellow'}>{c.ok?'READY':'PENDING'}</Tag>
+      </div>)}
+    </div>
+    {command && op.status==='draft' && <div className="readiness-footer"><div><b>{r.percent===100?'All deployment gates are green.':'Finish the pending gates before launch.'}</b><small>Activation remains manual; readiness is your command safety check.</small></div><button className="btn primary" onClick={onActivate}><Radio size={15}/> ACTIVATE OPERATION</button></div>}
+    {op.status==='active' && <div className="readiness-footer active"><div><b>OPERATION ACTIVE</b><small>Use the tabs below to manage the live mission workspace.</small></div><Tag tone="green">LIVE</Tag></div>}
+    {op.status==='archived' && <div className="readiness-footer"><div><b>OPERATION ARCHIVED</b><small>Historical record retained for reference and AAR.</small></div><Tag>ARCHIVED</Tag></div>}
+  </div>;
+}
+
 function OperationDetail({data,setData,user,clan}){
   const {id}=useParams(); const navigate=useNavigate();
   const op=data.ops.find(x=>x.id===id);
@@ -404,13 +444,13 @@ function OperationDetail({data,setData,user,clan}){
   const attendanceValues=Object.values(op.attendanceByPlayer||{}); const going=attendanceValues.filter(v=>v==='going').length; const responded=attendanceValues.length;
   const playersWithIds=data.players.filter(p=>p.memberUserId||p.id);
   return <>
-    <PageHead eyebrow={`OPERATION #${op.id}`} title={op.name} subtitle={`${op.map} · ${op.mode} · ${op.date} · ${op.time} · VS ${op.opponent}`} actions={<><Tag tone={op.status==='active'?'green':'yellow'}>{op.status.toUpperCase()}</Tag><button className="btn" onClick={()=>navigate('/operations')}><ArrowLeft size={15}/> BACK</button></>}/>
+    <PageHead eyebrow={`OPERATION #${op.id}`} title={op.name} subtitle={`${op.map} · ${op.mode} · ${op.date} · ${op.time} · VS ${op.opponent}`} actions={<><Tag tone={op.status==='active'?'green':op.status==='archived'?'':'yellow'}>{op.status.toUpperCase()}</Tag>{command&&<button className="btn" onClick={()=>update({status:op.status==='draft'?'active':op.status==='active'?'archived':'draft'})}>{op.status==='draft'?'ACTIVATE':op.status==='active'?'ARCHIVE':'REOPEN'}</button>}<button className="btn" onClick={()=>navigate('/operations')}><ArrowLeft size={15}/> BACK</button></>}/>
     <div className="tabs">{['overview','attendance','squads','strategy','stage maps','briefings','aar'].map(t=><button key={t} className={tab===t?'active':''} onClick={()=>setTab(t)}>{t}</button>)}</div>
-    {tab==='overview'&&(command?<div className="grid g3">
+    {tab==='overview'&&(command?<><OperationReadiness op={op} data={data} command={command} onActivate={()=>update({status:'active'})}/><div className="grid g3">
       <Stat label="ATTENDANCE" value={`${going}/${responded}`} sub="RESPONDED / GOING" trend/><Stat label="SQUADS" value={(op.squads||[]).length} sub="ASSIGNMENT GROUPS"/><Stat label="BRIEFINGS" value={`${Object.values(op.briefingsByPlayer||{}).filter(b=>b?.published).length}/${data.players.length}`} sub="PUBLISHED"/>
       <div className="card section span2"><div className="section-head"><h3>Mission record</h3><span>EDITABLE</span></div><div className="form-grid"><Input label="OPERATION NAME" value={op.name} onChange={v=>update({name:v})}/><Input label="OPPONENT" value={op.opponent} onChange={v=>update({opponent:v})}/><Input label="MAP" value={op.map} onChange={v=>update({map:v})}/><Input label="MODE" value={op.mode} onChange={v=>update({mode:v})}/><label className="field"><span>DATE</span><input type="date" value={op.date} onChange={e=>update({date:e.target.value})}/></label><label className="field"><span>TIME</span><input type="time" value={op.time} onChange={e=>update({time:e.target.value})}/></label></div><div className="actions"><button className="btn" onClick={()=>update({status:op.status==='active'?'draft':'active'})}>{op.status==='active'?'SET DRAFT':'ACTIVATE OPERATION'}</button><button className="btn" onClick={nested}>PREPARE WORKSPACE</button></div></div>
       <div className="card section"><div className="section-head"><h3>Command flow</h3></div><div className="side-list">{[['1','Players sign up','attendance'],['2','Squads assigned','squads'],['3','Strategy locked','strategy'],['4','Stage maps','stage maps'],['5','Individual briefings','briefings'],['6','AAR','aar']].map(([n,label,t])=><button className="row row-button" key={t} onClick={()=>setTab(t)}><div><b>{n}. {label}</b><small>Open workspace</small></div><ArrowUpRight size={14}/></button>)}</div></div>
-    </div>:<PermissionCard clan={clan} title="COMMAND WORKSPACE" text="Use My Operation for your player view. Command roles can edit the operation record and workflow."/>)}
+    </div></>:<PermissionCard clan={clan} title="COMMAND WORKSPACE" text="Use My Operation for your player view. Command roles can edit the operation record and workflow."/>)}
     {tab==='attendance'&&<OperationAttendance op={op} data={data} setData={setData} user={user} clan={clan}/>} 
     {tab==='squads'&&(squadManager?<OperationSquads op={op} data={data} setData={setData} clan={clan}/>:<PermissionCard clan={clan} title="SQUAD MANAGEMENT" text="Only Command and Squad Leads can assign players to squads."/>)} 
     {tab==='strategy'&&(command?<OperationStrategy op={op} setData={setData}/>:<PermissionCard clan={clan} title="STRATEGY CONTROLLED" text="Commander and CO roles can edit the operation strategy."/>)} 
