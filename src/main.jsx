@@ -279,9 +279,96 @@ function OperationAttendance({op,data,setData,user,clan}){
 }
 
 function OperationSquads({op,data,setData}){
-  const squads=op.squads||[]; function assign(pid,sid){setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?{...x,squads:x.squads.map(s=>({...s,playerIds:s.id===sid?[...new Set([...s.playerIds,pid])]:s.playerIds.filter(id=>id!==pid)}))}:x)})); const squadName=squads.find(s=>s.id===sid)?.name||'Unassigned'; setData(d=>({...d,players:d.players.map(p=>p.id===pid?{...p,squad:squadName}:p)}));}
-  function addSquad(){const name=`Squad ${squads.length+1}`;setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?{...x,squads:[...x.squads,{id:`s${Date.now()}`,name,lead:'',playerIds:[]]}:x)}));}
-  return <><PageHead eyebrow={`OPERATION #${op.id}`} title="SQUAD ASSIGNMENT" subtitle="PUT EVERY PLAYER IN THE RIGHT PLACE" actions={<button className="btn primary" onClick={addSquad}><Plus size={15}/> ADD SQUAD</button>}/><div className="grid g2">{squads.map(s=><div className="card" key={s.id}><div className="section-head"><h3>{s.name}</h3><span>{s.playerIds.length} PLAYERS</span></div><label className="field"><span>SQUAD LEAD</span><select value={s.lead||''} onChange={e=>setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?{...x,squads:x.squads.map(q=>q.id===s.id?{...q,lead:e.target.value}:q)}:x)}))}><option value="">Unassigned</option>{data.players.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select></label><div className="player-chips">{s.playerIds.map(pid=>{const p=data.players.find(x=>x.id===pid);return p?<Tag key={pid} tone="green">{p.name}</Tag>:null})}</div></div>)}<div className="card section"><div className="section-head"><h3>Assign players</h3><span>ALL ROSTER</span></div><table className="table"><thead><tr><th>PLAYER</th><th>CURRENT SQUAD</th><th>MOVE TO</th></tr></thead><tbody>{data.players.map(p=><tr key={p.id}><td><b>{p.name}</b><small>{p.role}</small></td><td>{p.squad}</td><td><select value={squads.find(s=>s.name===p.squad)?.id||''} onChange={e=>assign(p.id,e.target.value)}><option value="">Unassigned</option>{squads.map(s=><option value={s.id} key={s.id}>{s.name}</option>)}</select></td></tr>)}</tbody></table></div></div></>;
+  const squads=op.squads||[];
+
+  function assign(pid,sid){
+    const squadName=squads.find(s=>s.id===sid)?.name||'Unassigned';
+    setData(d=>({
+      ...d,
+      ops:d.ops.map(x=>{
+        if(x.id!==op.id)return x;
+        return {
+          ...x,
+          squads:(x.squads||[]).map(s=>({
+            ...s,
+            playerIds:s.id===sid
+              ? [...new Set([...(s.playerIds||[]),pid])]
+              : (s.playerIds||[]).filter(id=>id!==pid)
+          }))
+        };
+      }),
+      players:d.players.map(p=>p.id===pid?{...p,squad:squadName}:p)
+    }));
+  }
+
+  function addSquad(){
+    const name=`Squad ${squads.length+1}`;
+    const newSquad={id:`s${Date.now()}`,name,lead:'',playerIds:[]};
+    setData(d=>({
+      ...d,
+      ops:d.ops.map(x=>x.id===op.id?{...x,squads:[...(x.squads||[]),newSquad]}:x)
+    }));
+  }
+
+  return <>
+    <PageHead
+      eyebrow={`OPERATION #${op.id}`}
+      title="SQUAD ASSIGNMENT"
+      subtitle="PUT EVERY PLAYER IN THE RIGHT PLACE"
+      actions={<button className="btn primary" onClick={addSquad}><Plus size={15}/> ADD SQUAD</button>}
+    />
+
+    <div className="grid g2">
+      {squads.map(s=>(
+        <div className="card" key={s.id}>
+          <div className="section-head"><h3>{s.name}</h3><span>{(s.playerIds||[]).length} PLAYERS</span></div>
+          <label className="field">
+            <span>SQUAD LEAD</span>
+            <select
+              value={s.lead||''}
+              onChange={e=>setData(d=>({
+                ...d,
+                ops:d.ops.map(x=>x.id===op.id?{
+                  ...x,
+                  squads:(x.squads||[]).map(q=>q.id===s.id?{...q,lead:e.target.value}:q)
+                }:x)
+              }))}
+            >
+              <option value="">Unassigned</option>
+              {data.players.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
+            </select>
+          </label>
+          <div className="player-chips">
+            {(s.playerIds||[]).map(pid=>{
+              const p=data.players.find(x=>x.id===pid);
+              return p?<Tag key={pid} tone="green">{p.name}</Tag>:null;
+            })}
+          </div>
+        </div>
+      ))}
+
+      <div className="card section">
+        <div className="section-head"><h3>Assign players</h3><span>ALL ROSTER</span></div>
+        <table className="table">
+          <thead><tr><th>PLAYER</th><th>CURRENT SQUAD</th><th>MOVE TO</th></tr></thead>
+          <tbody>
+            {data.players.map(p=>(
+              <tr key={p.id}>
+                <td><b>{p.name}</b><small>{p.role}</small></td>
+                <td>{p.squad||'Unassigned'}</td>
+                <td>
+                  <select value={squads.find(s=>s.name===p.squad)?.id||''} onChange={e=>assign(p.id,e.target.value)}>
+                    <option value="">Unassigned</option>
+                    {squads.map(s=><option value={s.id} key={s.id}>{s.name}</option>)}
+                  </select>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </>;
 }
 
 function OperationStrategy({op,setData}){const local=op.strategyData||{intent:'',orders:'',phases:DEFAULT_PHASES}; function updateStrategy(patch){setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?{...x,strategyData:{...local,...patch},strategy:'ready'}:x)}));} function updatePhase(id,patch){const phases=local.phases.map(p=>p.id===id?{...p,...patch}:p);updateStrategy({phases});} return <div><PageHead eyebrow={`OPERATION #${op.id}`} title="STRATEGY" subtitle="COMMANDER'S INTENT → PHASES → TASKS" actions={<Tag tone={local.intent?'green':'yellow'}>{local.intent?'DRAFT READY':'INCOMPLETE'}</Tag>}/><div className="grid g2"><div className="card form"><Input label="COMMANDER'S INTENT" value={local.intent} onChange={v=>updateStrategy({intent:v})} placeholder="What must this operation achieve?"/><label className="field"><span>GLOBAL ORDERS</span><textarea value={local.orders} onChange={e=>updateStrategy({orders:e.target.value})} placeholder="Rules, priorities, triggers, fallback conditions…"/></label></div><div className="card"><div className="section-head"><h3>Battle phases</h3><span>4 PHASES</span></div><div className="side-list">{local.phases.map(p=><div className="row" key={p.id}><div><b>{String(p.no).padStart(2,'0')} — {p.name}</b><small>{p.intent||'No phase intent yet.'}</small></div><Tag tone={p.intent?'green':'yellow'}>{p.intent?'READY':'DRAFT'}</Tag></div>)}</div></div></div><div className="card section"><div className="section-head"><h3>Phase editor</h3><span>SAVE AS YOU TYPE</span></div>{local.phases.map(p=><div className="phase-editor" key={p.id}><div className="phase-title"><Tag tone="green">{String(p.no).padStart(2,'0')}</Tag><b>{p.name}</b></div><Input label="PHASE INTENT" value={p.intent} onChange={v=>updatePhase(p.id,{intent:v})}/><Input label="PRIMARY TASKS" value={(p.tasks||[]).join(' · ')} onChange={v=>updatePhase(p.id,{tasks:v.split('·').map(x=>x.trim()).filter(Boolean)})}/></div>)}</div></div>}
