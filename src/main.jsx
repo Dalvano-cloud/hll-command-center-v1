@@ -345,37 +345,63 @@ function MyOperation({data,setData,user,clan}){
   const player=currentPlayer(data,user,clan);
   const status=player&&op?(op.attendanceByPlayer||{})[player.id]||'pending':'pending';
   const squad=player?playerSquadForOperation(op,player.id):'Unassigned';
-  const brief=player?(op?.briefingsByPlayer||{})[player.id]:null;
-  const phase=(op?.strategyData?.phases||DEFAULT_PHASES).find(p=>p.intent)||DEFAULT_PHASES[0];
+  const localBrief=player?(op?.briefingsByPlayer||{})[player.id]:null;
+  const [serverBrief,setServerBrief]=useState(null);
   const [receiptBusy,setReceiptBusy]=useState(false);
+  const [receiptError,setReceiptError]=useState('');
+
+  useEffect(()=>{
+    let cancelled=false;
+    async function loadBriefing(){
+      setServerBrief(null); setReceiptError('');
+      if(!supabase||!op||!user?.id) return;
+      const {data:rows,error}=await supabase.from('briefings').select('id,operation_id,player_id,title,body,checklist,published_at').eq('operation_id',op.id).eq('player_id',user.id).eq('scope','individual').order('updated_at',{ascending:false}).limit(1);
+      if(error){if(!cancelled)setReceiptError(error.message);return;}
+      const b=rows?.[0];
+      if(!b){if(!cancelled)setServerBrief(null);return;}
+      const {data:receipt,error:receiptErr}=await supabase.from('briefing_receipts').select('read_at,acknowledged_at').eq('briefing_id',b.id).eq('player_id',user.id).maybeSingle();
+      if(receiptErr){if(!cancelled)setReceiptError(receiptErr.message);return;}
+      if(!cancelled)setServerBrief({id:b.id,title:b.title||'MISSION BRIEF',body:b.body||'',published:!!b.published_at,read:!!receipt?.read_at,readAt:receipt?.read_at||null,acknowledged:!!receipt?.acknowledged_at,acknowledgedAt:receipt?.acknowledged_at||null});
+    }
+    loadBriefing();
+    return ()=>{cancelled=true};
+  },[op?.id,user?.id]);
+
+  const brief=serverBrief || localBrief;
+  const phase=(op?.strategyData?.phases||DEFAULT_PHASES).find(p=>p.status==='active')||(op?.strategyData?.phases||DEFAULT_PHASES).find(p=>p.intent)||DEFAULT_PHASES[0];
+
   if(!op) return <div className="card"><h2>NO ACTIVE OPERATION</h2><p className="subtitle">Your commander has not created an operation yet.</p><button className="btn" onClick={()=>navigate('/operations')}>OPEN OPERATIONS</button></div>;
+
   function respond(next){
     let pid=player?.id;
     if(!pid){pid=crypto.randomUUID?.()||Math.random().toString(36).slice(2);setData(d=>({...d,players:[...d.players,{id:pid,memberUserId:user.id,name:clan?.callsign||user.email?.split('@')[0]||'Player',squad:'Unassigned',role:'Rifleman',status:'ready'}]}));}
     setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?{...x,attendanceByPlayer:{...(x.attendanceByPlayer||{}),[pid]:next}}:x)}));
   }
+
   async function markReceipt(action){
-    if(!brief?.id || !user?.id || !supabase) return;
-    setReceiptBusy(true);
-    const now=new Date().toISOString();
-    const payload={
-      briefing_id:brief.id,
-      player_id:user.id,
-      read_at:brief.readAt||now,
-      acknowledged_at:action==='ack' ? (brief.acknowledgedAt||now) : (brief.acknowledgedAt||null),
-      updated_at:now
-    };
-    const {error}=await supabase.from('briefing_receipts').upsert(payload,{onConflict:'briefing_id,player_id'});
+    if(!brief?.id||!user?.id||!supabase)return;
+    setReceiptBusy(true); setReceiptError('');
+    const {data:row,error}=await supabase.rpc('set_briefing_receipt',{p_briefing_id:brief.id,p_action:action});
     setReceiptBusy(false);
-    if(error){alert(error.message);return;}
-    setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?{...x,briefingsByPlayer:{...(x.briefingsByPlayer||{}),[player.id]:{...(x.briefingsByPlayer?.[player.id]||{}),read:true,readAt:payload.read_at,acknowledged:!!payload.acknowledged_at,acknowledgedAt:payload.acknowledged_at}}}:x)}));
+    if(error){setReceiptError(error.message);return;}
+    const next={
+      ...(brief||{}),
+      read:!!row?.read_at,
+      readAt:row?.read_at||null,
+      acknowledged:!!row?.acknowledged_at,
+      acknowledgedAt:row?.acknowledged_at||null
+    };
+    setServerBrief(next);
+    setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?{...x,briefingsByPlayer:{...(x.briefingsByPlayer||{}),[player.id]:{...(x.briefingsByPlayer?.[player.id]||{}),...next}}}:x)}));
   }
+
+  const briefingState=brief?.acknowledged?'ACKNOWLEDGED':brief?.read?'READ':brief?.published?'UNREAD':'PENDING';
   return <>
     <PageHead eyebrow={`PLAYER CONSOLE // OPERATION #${op.id}`} title={op.name} subtitle={`${op.map} · ${op.mode} · ${op.date} · ${op.time} · VS ${op.opponent}`} actions={<Tag tone={status==='going'?'green':status==='declined'?'red':'yellow'}>{status.toUpperCase()}</Tag>}/>
-    <div className="grid g4"><Stat label="ATTENDANCE" value={status.toUpperCase()} sub="YOUR RESPONSE" trend={status==='going'}/><Stat label="SQUAD" value={squad} sub={player?.role||'ROLE NOT SET'}/><Stat label="CURRENT PHASE" value={String(phase.no).padStart(2,'0')} sub={phase.name}/><Stat label="BRIEFING" value={brief?.acknowledged?'ACKNOWLEDGED':brief?.read?'READ':brief?.published?'UNREAD':'PENDING'} sub="INDIVIDUAL MISSION" trend={!!brief?.acknowledged}/></div>
+    <div className="grid g4"><Stat label="ATTENDANCE" value={status.toUpperCase()} sub="YOUR RESPONSE" trend={status==='going'}/><Stat label="SQUAD" value={squad} sub={player?.role||'ROLE NOT SET'}/><Stat label="CURRENT PHASE" value={String(phase.no).padStart(2,'0')} sub={phase.name}/><Stat label="BRIEFING" value={briefingState} sub="INDIVIDUAL MISSION" trend={!!brief?.acknowledged}/></div>
     <div className="grid g2 section">
       <div className="card form"><div className="eyebrow">YOUR ATTENDANCE</div><h2>REPORT AVAILABILITY</h2><p className="subtitle">Your commander uses this response to build squads and readiness.</p><div className="actions"><button className={status==='going'?'btn primary':'btn'} onClick={()=>respond('going')}><Check size={15}/> GOING</button><button className={status==='maybe'?'btn primary':'btn'} onClick={()=>respond('maybe')}>MAYBE</button><button className={status==='declined'?'btn primary':'btn'} onClick={()=>respond('declined')}>DECLINE</button></div><div className="callout"><Radio size={15}/> Attendance is saved to this operation and visible to command.</div></div>
-      <div className="card brief"><div className="eyebrow">YOUR INDIVIDUAL BRIEFING</div><h2>{brief?.title||'NOT PUBLISHED YET'}</h2><div className="subtitle">{squad.toUpperCase()} · {(player?.role||'RIFLEMAN').toUpperCase()}</div>{brief?.published?<><p>{brief.body||'No mission text has been written yet.'}</p><div className="status-line"><Tag tone={brief.acknowledged?'green':brief.read?'yellow':'red'}>{brief.acknowledged?'ACKNOWLEDGED':brief.read?'READ':'UNREAD'}</Tag></div><div className="actions">{!brief.read&&<button className="btn" disabled={receiptBusy} onClick={()=>markReceipt('read')}>{receiptBusy?'SAVING…':'MARK AS READ'}</button>} {!brief.acknowledged&&<button className="btn primary" disabled={receiptBusy} onClick={()=>markReceipt('ack')}><Check size={15}/> ACKNOWLEDGE ORDERS</button>}</div><div className="callout"><ClipboardCheck size={15}/> Acknowledging confirms you have read your mission orders.</div></>:<><p>Your squad assignment and mission brief will appear here once command publishes them.</p><Tag tone="yellow">WAITING FOR COMMAND</Tag></>}</div>
+      <div className="card brief"><div className="eyebrow">YOUR INDIVIDUAL BRIEFING</div><h2>{brief?.title||'NOT PUBLISHED YET'}</h2><div className="subtitle">{squad.toUpperCase()} · {(player?.role||'RIFLEMAN').toUpperCase()}</div>{brief?.published?<><p>{brief.body||'No mission text has been written yet.'}</p><div className="status-line"><Tag tone={brief.acknowledged?'green':brief.read?'yellow':'red'}>{brief.acknowledged?'ACKNOWLEDGED':brief.read?'READ':'UNREAD'}</Tag></div><div className="actions">{!brief.read&&<button type="button" className="btn" disabled={receiptBusy} onClick={()=>markReceipt('read')}>{receiptBusy?'SAVING…':'MARK AS READ'}</button>} {!brief.acknowledged&&<button type="button" className="btn primary" disabled={receiptBusy} onClick={()=>markReceipt('acknowledge')}><Check size={15}/> ACKNOWLEDGE ORDERS</button>}</div>{receiptError&&<div className="error">{receiptError}</div>}<div className="callout"><ClipboardCheck size={15}/> Acknowledging confirms you have read your mission orders.</div></>:<><p>Your squad assignment and mission brief will appear here once command publishes them.</p><Tag tone="yellow">WAITING FOR COMMAND</Tag></>}</div>
     </div>
     <div className="grid g2 section">
       <div className="card"><div className="section-head"><h3>Command plan</h3><span>PHASE {String(phase.no).padStart(2,'0')}</span></div><div className="side-list"><div className="row"><div><b>Commander intent</b><small>{op.strategyData?.intent||'Not published yet.'}</small></div></div><div className="row"><div><b>Your phase task</b><small>{phase.tasks?.length?phase.tasks.join(' · '):'No task assigned yet.'}</small></div></div><div className="row"><div><b>Global orders</b><small>{op.strategyData?.orders||'No global orders published yet.'}</small></div></div></div></div>
