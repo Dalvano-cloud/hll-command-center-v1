@@ -219,10 +219,14 @@ function useClanStore(user){
       const members=(memberRows||[]).map(m=>({id:m.user_id,name:m.callsign||m.profiles?.display_name||'Player',primary_role:m.primary_role,role:m.role}));
       const cloudPlayers=buildMemberPlayers(members);
       const clanInfo={id:member.clan_id,name:member.clans?.name||'Clan',tag:member.clans?.tag||'',inviteCode:member.clans?.invite_code||'',role:member.role,callsign:member.callsign||user.user_metadata?.name||user.email?.split('@')[0]||'Player'};
-      const {data:row,error:stateError}=await supabase.from('clan_app_state').select('data').eq('clan_id',member.clan_id).maybeSingle();
-      if(stateError){ if(!cancelled){setError(stateError.message);setLoading(false);} return; }
+      let base={...seed,players:cloudPlayers};
+      const canReadWorkspace=['commander','co'].includes(member.role);
+      if(canReadWorkspace){
+        const {data:row,error:stateError}=await supabase.from('clan_app_state').select('data').eq('clan_id',member.clan_id).maybeSingle();
+        if(stateError){ if(!cancelled){setError(stateError.message);setLoading(false);} return; }
+        base=normalizeData(row?.data || base);
+      }
       try{
-        const base=normalizeData(row?.data || {...seed,players:cloudPlayers});
         const merged=await loadRelationalOperations(member.clan_id,base,cloudPlayers);
         if(!cancelled){setClan(clanInfo);setData(merged);setNeedsOnboarding(false);setLoading(false);setHydrated(true);}
       }catch(loadError){ if(!cancelled){setError(loadError.message||String(loadError));setLoading(false);setHydrated(true);} }
@@ -234,8 +238,11 @@ function useClanStore(user){
     if(!clan || loading || !hydrated) return;
     const timer=setTimeout(async()=>{
       if(!supabase){localStorage.setItem('hll-command-data',JSON.stringify(data));return;}
-      const {error:upsertError}=await supabase.from('clan_app_state').upsert({clan_id:clan.id,data,updated_at:new Date().toISOString()},{onConflict:'clan_id'});
-      if(upsertError){setError(upsertError.message);return;}
+      const canWriteWorkspace=['commander','co'].includes(clan.role);
+      if(canWriteWorkspace){
+        const {error:upsertError}=await supabase.from('clan_app_state').upsert({clan_id:clan.id,data,updated_at:new Date().toISOString()},{onConflict:'clan_id'});
+        if(upsertError){setError(upsertError.message);return;}
+      }
       try{
         for(const op of data.ops||[]) await syncOperationRelations({clanId:clan.id,user,role:clan.role,op,players:data.players||[]});
       }catch(syncError){setError(syncError.message||String(syncError));}
@@ -244,7 +251,7 @@ function useClanStore(user){
   },[data,clan?.id,clan?.role,hydrated,user?.id]);
 
   useEffect(()=>{
-    if(!supabase || !clan?.id) return;
+    if(!supabase || !clan?.id || !['commander','co'].includes(clan.role)) return;
     const channel=supabase.channel(`clan-state-${clan.id}`)
       .on('postgres_changes',{event:'UPDATE',schema:'public',table:'clan_app_state',filter:`clan_id=eq.${clan.id}`},payload=>{if(payload.new?.data) setData(normalizeData(payload.new.data));})
       .subscribe();
