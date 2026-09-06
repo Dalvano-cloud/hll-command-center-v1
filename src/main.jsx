@@ -170,8 +170,7 @@ async function loadRelationalOperations(clanId,baseData,members){
   const mapByOp={}; for(const row of sm.data||[]) (mapByOp[row.operation_id]??=[]).push({...row,markers:[]});
   const receiptByBrief=Object.fromEntries((receiptQuery.data||[]).map(r=>[r.briefing_id,r]));
   const briefByOp={}; for(const row of bf.data||[]){ const rec=receiptByBrief[row.id]; ((briefByOp[row.operation_id]??={})[row.player_id]={id:row.id,title:row.title||'',body:row.body||'',checklist:row.checklist||[],published:!!row.published_at,publishedAt:row.published_at||null,read:!!rec?.read_at,readAt:rec?.read_at||null,acknowledged:!!rec?.acknowledged_at,acknowledgedAt:rec?.acknowledged_at||null}); }
-  const aarByOp=Object.fromEntries((aar.data||[]).map(row=>[row.operation_id,{result:row.result||'',score:row.score||'',worked:row.worked||'',failed:row.failed||'',lessons:Array.isArray(row.lessons_learned)?row.lessons_learned.join('
-'):''}]));
+  const aarByOp=Object.fromEntries((aar.data||[]).map(row=>[row.operation_id,{result:row.result||'',score:row.score||'',worked:row.worked||'',failed:row.failed||'',lessons:Array.isArray(row.lessons_learned)?row.lessons_learned.join(' · '):''}]));
   const taskRows=await supabase.from('strategy_tasks').select('*').in('phase_id',(ph.data||[]).map(x=>x.id)); if(taskRows.error) throw taskRows.error;
   const tasksByPhase={}; for(const row of taskRows.data||[]) (tasksByPhase[row.phase_id]??=[]).push(row.title);
   const objectRows=await supabase.from('map_objects').select('*').in('stage_map_id',(sm.data||[]).map(x=>x.id)); if(objectRows.error) throw objectRows.error;
@@ -927,3 +926,4 @@ root.render(
     <App />
   </BrowserRouter>
 );
+
