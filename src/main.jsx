@@ -914,12 +914,57 @@ function Roster({data,setData,embedded=false}){
 }
 
 function Members({clan,user,data,setClan}){
-  const [members,setMembers]=useState([]); const [loading,setLoading]=useState(true); const [error,setError]=useState(''); const [copied,setCopied]=useState(false);
-  useEffect(()=>{let live=true;(async()=>{if(!supabase||!clan?.id){setMembers(data.players.map(p=>({id:p.id,callsign:p.name,role:p.role,user_id:p.memberUserId,active:true})));setLoading(false);return;} const {data:rows,error:e}=await supabase.from('clan_members').select('id,user_id,callsign,role,active,created_at').eq('clan_id',clan.id).order('created_at',{ascending:true}); if(live){setMembers(rows||[]);setError(e?.message||'');setLoading(false);}})();return()=>{live=false}},[clan?.id,data.players.length]);
+  const [members,setMembers]=useState([]); const [loading,setLoading]=useState(true); const [error,setError]=useState(''); const [copied,setCopied]=useState(false); const [query,setQuery]=useState(''); const [statusFilter,setStatusFilter]=useState('active'); const [busyId,setBusyId]=useState('');
+  const load=async()=>{
+    if(!supabase||!clan?.id){setMembers((data.players||[]).map(p=>({id:p.id,callsign:p.name,role:p.role,user_id:p.memberUserId,active:true,primary_role:p.role})));setLoading(false);return;}
+    setLoading(true); const {data:rows,error:e}=await supabase.from('clan_members').select('id,user_id,callsign,primary_role,role,active,created_at').eq('clan_id',clan.id).order('created_at',{ascending:true}); setMembers(rows||[]); setError(e?.message||''); setLoading(false);
+  };
+  useEffect(()=>{let live=true;(async()=>{await load();})();return()=>{live=false}},[clan?.id,data.players.length]);
   const admin=canManageMembers(clan);
-  async function updateRole(memberId,newRole){ if(!admin || !supabase) return; try{ const member=members.find(m=>m.id===memberId); if(!member) return; const {error:e}=await supabase.from('clan_members').update({role:newRole}).eq('id',memberId).eq('clan_id',clan.id); if(e)throw e; setMembers(ms=>ms.map(m=>m.id===memberId?{...m,role:newRole}:m)); if(member.user_id===user?.id && setClan) setClan(c=>c?{...c,role:newRole}:c); }catch(e){setError(e.message||'Could not update member role.');} }
+  const filtered=members.filter(m=>{
+    const text=`${m.callsign||''} ${m.primary_role||''} ${m.role||''}`.toLowerCase();
+    const q=query.trim().toLowerCase();
+    const matchesQuery=!q||text.includes(q);
+    const matchesStatus=statusFilter==='all'||(statusFilter==='active'?m.active:!m.active);
+    return matchesQuery&&matchesStatus;
+  });
+  async function updateMember(memberId,patch){
+    if(!admin||!supabase)return;
+    const member=members.find(m=>m.id===memberId); if(!member)return;
+    if(member.user_id===user?.id && patch.active===false){setError('You cannot deactivate your own commander account.');return;}
+    setBusyId(memberId); setError('');
+    try{const {data:updated,error:e}=await supabase.from('clan_members').update(patch).eq('id',memberId).eq('clan_id',clan.id).select('id,user_id,callsign,primary_role,role,active,created_at').single(); if(e)throw e; setMembers(ms=>ms.map(m=>m.id===memberId?updated:m)); if(member.user_id===user?.id && patch.role&&setClan)setClan(c=>c?{...c,role:patch.role}:c);}catch(e){setError(e.message||'Could not update member.');}finally{setBusyId('');}
+  }
+  async function updateRole(memberId,newRole){
+    const member=members.find(m=>m.id===memberId); if(!member)return;
+    if(member.user_id===user?.id && newRole!=='commander'){setError('The commander account cannot demote itself.');return;}
+    await updateMember(memberId,{role:newRole});
+  }
+  async function toggleActive(memberId){const member=members.find(m=>m.id===memberId);if(!member)return;await updateMember(memberId,{active:!member.active});}
   async function copyInvite(){if(!clan?.inviteCode)return;try{await navigator.clipboard.writeText(clan.inviteCode);setCopied(true);setTimeout(()=>setCopied(false),1500);}catch{setCopied(false)}}
-  return <><PageHead eyebrow="PERSONNEL COMMAND" title="CLAN MEMBERS" subtitle="ACCOUNTS · ROLES · INVITE ACCESS" actions={<Tag tone={admin?"green":"yellow"}>{admin?"ROLE ADMIN":"READ ONLY"}</Tag>}/><div className="grid g3"><div className="card stat"><div className="k">MEMBERS</div><div className="v">{members.length}</div><div className="s">ACTIVE CLAN ACCOUNTS</div></div><div className="card stat"><div className="k">COMMANDERS</div><div className="v">{members.filter(m=>m.role==='commander'||m.role==='co').length}</div><div className="s">COMMAND ACCESS</div></div>{admin?<div className="card"><div className="section-head"><h3>Invite code</h3><span>COMMAND ONLY</span></div><div className="invite-code">{clan?.inviteCode||'—'}</div><button className="btn primary" onClick={copyInvite} disabled={!clan?.inviteCode}><Copy size={14}/> {copied?'COPIED':'COPY INVITE CODE'}</button></div>:<div className="card"><div className="section-head"><h3>Invite access</h3><span>LOCKED</span></div><p className="subtitle">Ask your commander for the current clan invite code.</p><Tag tone="yellow">COMMAND ONLY</Tag></div>}</div>{error&&<div className="error section">{error}</div>}<div className="card section"><div className="section-head"><h3>Member roster</h3><span>{loading?'LOADING…':'LIVE FROM SUPABASE'}</span></div><table className="table"><thead><tr><th>CALLSIGN</th><th>ROLE</th><th>STATUS</th><th>USER ID</th></tr></thead><tbody>{members.map(m=><tr key={m.id}><td><b>{m.callsign||'Unnamed player'}</b></td><td>{admin?<select value={m.role||'player'} onChange={e=>updateRole(m.id,e.target.value)} disabled={m.user_id===user?.id&&m.role==='commander'}>{(m.user_id===user?.id&&m.role==='commander'?ROLE_ORDER:['co','squad_lead','player','recruit']).map(r=><option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</select>:<Tag tone={m.role==='commander'?'green':m.role==='squad_lead'?'yellow':''}>{String(m.role||'player').replace('_',' ').toUpperCase()}</Tag>}</td><td><Tag tone={m.active?'green':'red'}>{m.active?'ACTIVE':'INACTIVE'}</Tag></td><td><small>{m.user_id===user?.id?'YOU':(m.user_id||'—').slice(0,8)}</small></td></tr>)}{!members.length&&!loading&&<tr><td colSpan="4">No clan members found.</td></tr>}</tbody></table></div></>
+  return <>
+    <PageHead eyebrow="PERSONNEL COMMAND" title="CLAN MEMBERS" subtitle="ACCOUNTS · ROLES · ACCESS · INVITES" actions={<Tag tone={admin?"green":"yellow"}>{admin?"COMMAND ADMIN":"READ ONLY"}</Tag>}/>
+    <div className="grid g3">
+      <div className="card stat"><div className="k">ACTIVE MEMBERS</div><div className="v">{members.filter(m=>m.active).length}</div><div className="s">CURRENT CLAN ACCOUNTS</div></div>
+      <div className="card stat"><div className="k">COMMAND</div><div className="v">{members.filter(m=>m.active&&(m.role==='commander'||m.role==='co')).length}</div><div className="s">COMMANDER + CO</div></div>
+      {admin?<div className="card"><div className="section-head"><h3>Clan invite</h3><span>COMMAND ONLY</span></div><div className="invite-code">{clan?.inviteCode||'—'}</div><button className="btn primary" onClick={copyInvite} disabled={!clan?.inviteCode}><Copy size={14}/> {copied?'COPIED':'COPY INVITE CODE'}</button><p className="member-help">Share this code only with people you want to join the clan.</p></div>:<div className="card"><div className="section-head"><h3>Invite access</h3><span>LOCKED</span></div><p className="subtitle">Ask your commander for the current clan invite code.</p><Tag tone="yellow">COMMAND ONLY</Tag></div>}
+    </div>
+    {error&&<div className="error section">{error}</div>}
+    <div className="card section">
+      <div className="toolbar member-toolbar"><div className="search"><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search callsign or role…"/></div><div className="member-filters"><button className={statusFilter==='active'?'active':''} onClick={()=>setStatusFilter('active')}>ACTIVE</button><button className={statusFilter==='inactive'?'active':''} onClick={()=>setStatusFilter('inactive')}>INACTIVE</button><button className={statusFilter==='all'?'active':''} onClick={()=>setStatusFilter('all')}>ALL</button></div></div>
+      <div className="section-head"><div><h3>Member roster</h3><small>{loading?'LOADING…':`${filtered.length} MATCHING MEMBERS`}</small></div><span>LIVE FROM SUPABASE</span></div>
+      <div className="table-scroll"><table className="table"><thead><tr><th>CALLSIGN</th><th>PRIMARY ROLE</th><th>ACCESS ROLE</th><th>STATUS</th><th>ACTIONS</th></tr></thead><tbody>
+      {filtered.map(m=><tr key={m.id} className={!m.active?'member-inactive':''}>
+        <td><div className="member-cell"><div className="avatar sm">{(m.callsign||'P').slice(0,1).toUpperCase()}</div><div><b>{m.callsign||'Unnamed player'}</b><small>{m.user_id===user?.id?'YOU':(m.user_id||'').slice(0,8)}</small></div></div></td>
+        <td><span>{m.primary_role||'RIFLEMAN'}</span></td>
+        <td>{admin?<select value={m.role||'player'} onChange={e=>updateRole(m.id,e.target.value)} disabled={busyId===m.id || (m.user_id===user?.id&&m.role==='commander')}>{(m.user_id===user?.id&&m.role==='commander'?['commander']:['co','squad_lead','player','recruit']).map(r=><option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</select>:<Tag tone={m.role==='commander'?'green':m.role==='squad_lead'?'yellow':''}>{ROLE_LABELS[m.role]||'PLAYER'}</Tag>}</td>
+        <td><Tag tone={m.active?'green':'red'}>{m.active?'ACTIVE':'INACTIVE'}</Tag></td>
+        <td>{admin&&m.user_id!==user?.id?<button className="btn mini-action" onClick={()=>toggleActive(m.id)} disabled={busyId===m.id}>{busyId===m.id?'SAVING…':m.active?'DEACTIVATE':'REACTIVATE'}</button>:<span className="muted">—</span>}</td>
+      </tr>)}
+      {!filtered.length&&!loading&&<tr><td colSpan="5"><div className="empty-state"><h3>No members found</h3><p className="muted">Try another search or status filter.</p></div></td></tr>}
+      </tbody></table></div>
+    </div>
+  </>
 }
 
 function Strategy({data,setData,embedded=false}){const [local,setLocal]=useState(data.strategy); useEffect(()=>setLocal(data.strategy),[data.strategy]); function save(){setData(d=>({...d,strategy:local}));alert('Strategy saved to local command database.')} return <div className={embedded?'embedded':''}>{!embedded&&<PageHead eyebrow="OPERATION 042" title="STRATEGY BUILDER" subtitle="COMMANDER'S INTENT → PHASES → TASKS" actions={<button className="btn primary" onClick={save}><Save size={15}/> SAVE STRATEGY</button>}/>}<div className="grid g2"><div className="card form"><div className="form-grid"><Input label="OPERATION NAME" value={local.name} onChange={v=>setLocal(x=>({...x,name:v}))}/><Input label="COMMANDER'S INTENT" value={local.intent} onChange={v=>setLocal(x=>({...x,intent:v}))}/></div><label className="field"><span>GLOBAL ORDERS</span><textarea value={local.orders} onChange={e=>setLocal(x=>({...x,orders:e.target.value}))}/></label><div className="callout"><Target size={15}/> Every phase should map to a stage map and at least one squad task.</div></div><div className="card"><div className="section-head"><h3>Battle phases</h3><span>4 PHASES</span></div><div className="side-list">{[['01 — SETUP','Garrisons, nodes, defensive positions','green'],['02 — CONTACT','Absorb first push, identify armor','green'],['03 — ROTATE','Shift Bravo north on center pressure','yellow'],['04 — FINAL','Fallback network, counterattack on call','']].map(([a,b,t])=><div className="row" key={a}><div><b>{a}</b><small>{b}</small></div><Tag tone={t}>{t==='green'?'READY':t==='yellow'?'DRAFT':'DRAFT'}</Tag></div>)}</div></div></div><div className="card section"><div className="section-head"><h3>Squad tasks</h3><span>LINKED TO PHASES</span></div><table className="table"><thead><tr><th>SQUAD</th><th>PRIMARY TASK</th><th>PHASE</th><th>DEPENDENCY</th></tr></thead><tbody><tr><td><b>ALPHA</b></td><td>Own western sector; protect G1</td><td>01–02</td><td>Supply + fallback</td></tr><tr><td><b>BRAVO</b></td><td>Center line + armor reserve</td><td>01–04</td><td>Commander release</td></tr><tr><td><b>CHARLIE</b></td><td>Southern fallback / counterattack</td><td>02–04</td><td>G2 integrity</td></tr><tr><td><b>DELTA</b></td><td>Recon + arty coordination</td><td>01–03</td><td>Grid reporting</td></tr></tbody></table></div></div>}
