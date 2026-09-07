@@ -102,9 +102,19 @@ async function syncOperationRelations({clanId,user,role,op,players}){
     const {data:dbSquads,error:sqErr}=await supabase.from('squads').select('id,name,squad_lead_id').eq('operation_id',opRow.id); if(sqErr) throw sqErr;
     const squadIdByName=Object.fromEntries((dbSquads||[]).map(s=>[s.name,s.id]));
     const {error:delAssign}=await supabase.from('roster_assignments').delete().eq('operation_id',opRow.id); if(delAssign) throw delAssign;
-    const assignments=players.filter(p=>p.memberUserId||p.id).map(p=>{
-      const squad=(op.squads||[]).find(s=>(s.playerIds||[]).includes(p.id));
-      return {operation_id:opRow.id,squad_id:squad?squadIdByName[squad.name]:null,user_id:p.memberUserId||p.id,role:p.role||'Rifleman',attendance:(op.attendanceByPlayer||{})[p.id]||'maybe',ready:p.status==='ready'};
+    // Only write real Supabase users from the current clan. Deduplicate by user_id so the
+    // unique (operation_id,user_id) constraint can never be violated by duplicate UI rows.
+    const {data:activeMembers,error:memberListError}=await supabase.from('clan_members').select('user_id').eq('clan_id',clanId).eq('active',true);
+    if(memberListError) throw memberListError;
+    const validUserIds=new Set((activeMembers||[]).map(m=>m.user_id));
+    const uniquePlayers=new Map();
+    for(const p of (players||[])){
+      const uid=p.memberUserId;
+      if(uid && validUserIds.has(uid) && !uniquePlayers.has(uid)) uniquePlayers.set(uid,p);
+    }
+    const assignments=[...uniquePlayers.values()].map(p=>{
+      const squad=(op.squads||[]).find(s=>(s.playerIds||[]).includes(p.id) || (s.playerIds||[]).includes(p.memberUserId));
+      return {operation_id:opRow.id,squad_id:squad?squadIdByName[squad.name]||null:null,user_id:p.memberUserId,role:p.role||'Rifleman',attendance:(op.attendanceByPlayer||{})[p.id]||'maybe',ready:p.status==='ready'};
     });
     if(assignments.length){ const {error}=await supabase.from('roster_assignments').insert(assignments); if(error) throw error; }
 
