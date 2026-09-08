@@ -268,25 +268,21 @@ function useClanStore(user){
     return ()=>{supabase.removeChannel(channel)};
   },[clan?.id]);
 
-  async function createClan(name,tag,callsign){
+  async function createClan(name,tag){
     if(!supabase) {setClan({id:'demo-clan',name,tag,inviteCode:'demo1234',role:'commander',callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'});setNeedsOnboarding(false);return;}
     const {data:clanRow,error:clanError}=await supabase.from('clans').insert({name,tag,created_by:user.id}).select().single(); if(clanError) throw clanError;
-    const playerCallsign=(callsign||user.user_metadata?.name||user.email?.split('@')[0]||'Player').trim()||'Player';
-    const {error:memberError}=await supabase.from('clan_members').insert({clan_id:clanRow.id,user_id:user.id,role:'commander',callsign:playerCallsign}); if(memberError) throw memberError;
-    const {error:profileError}=await supabase.from('profiles').update({display_name:playerCallsign}).eq('id',user.id); if(profileError) throw profileError;
-    const empty={...seed,ops:[],events:[],players:[{id:user.id,memberUserId:user.id,name:playerCallsign,squad:'Unassigned',role:'Commander',status:'ready'}],briefings:{},wiki:[],aar:{}};
+    const callsign=user.user_metadata?.name||user.email?.split('@')[0]||'Player';
+    const {error:memberError}=await supabase.from('clan_members').insert({clan_id:clanRow.id,user_id:user.id,role:'commander',callsign}); if(memberError) throw memberError;
+    const empty={...seed,ops:[],events:[],players:[{id:user.id,memberUserId:user.id,name:callsign,squad:'Unassigned',role:'Commander',status:'ready'}],briefings:{},wiki:[],aar:{}};
     const {error:stateError}=await supabase.from('clan_app_state').insert({clan_id:clanRow.id,data:empty}); if(stateError) throw stateError;
-    setClan({id:clanRow.id,name:clanRow.name,tag:clanRow.tag,inviteCode:clanRow.invite_code||'',role:'commander',callsign:playerCallsign}); setData(empty); setNeedsOnboarding(false); setHydrated(true);
+    setClan({id:clanRow.id,name:clanRow.name,tag:clanRow.tag,inviteCode:clanRow.invite_code||'',role:'commander',callsign}); setData(empty); setNeedsOnboarding(false); setHydrated(true);
   }
-  async function joinClan(inviteCode,callsign){
+  async function joinClan(inviteCode){
     if(!supabase){setClan({id:'demo-clan',name:'HLL Demo Clan',tag:'DEMO',inviteCode:'demo1234',role:'player',callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'});setNeedsOnboarding(false);return;}
     const {data:joined,error:joinError}=await supabase.rpc('join_clan_by_invite',{p_code:inviteCode}); if(joinError) throw joinError;
     const row=Array.isArray(joined)?joined[0]:joined; if(!row?.clan_id) throw new Error('Could not join clan.');
-    const playerCallsign=(callsign||user.user_metadata?.name||user.email?.split('@')[0]||'Player').trim()||'Player';
-    const {error:callError}=await supabase.from('clan_members').update({callsign:playerCallsign}).eq('clan_id',row.clan_id).eq('user_id',user.id); if(callError) throw callError;
-    const {error:profileError}=await supabase.from('profiles').update({display_name:playerCallsign}).eq('id',user.id); if(profileError) throw profileError;
     const {data:stateRow,error:stateError}=await supabase.from('clan_app_state').select('data').eq('clan_id',row.clan_id).maybeSingle(); if(stateError) throw stateError;
-    setClan({id:row.clan_id,name:row.clan_name,tag:row.clan_tag,inviteCode:inviteCode,role:row.member_role,callsign:playerCallsign}); setData(normalizeData(stateRow?.data||seed)); setNeedsOnboarding(false); setHydrated(true);
+    setClan({id:row.clan_id,name:row.clan_name,tag:row.clan_tag,inviteCode:inviteCode,role:row.member_role,callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'}); setData(normalizeData(stateRow?.data||seed)); setNeedsOnboarding(false); setHydrated(true);
   }
   return {data,setData,clan,setClan,loading,error,needsOnboarding,createClan,joinClan};
 }
@@ -313,10 +309,10 @@ function AuthenticatedApp({session}){
 }
 
 function Onboarding({user,onCreate,onJoin}){
-  const [mode,setMode]=useState('create'); const [callsign,setCallsign]=useState(user.user_metadata?.name || user.email?.split('@')[0] || 'Player'); const [name,setName]=useState(''); const [tag,setTag]=useState(''); const [invite,setInvite]=useState(''); const [busy,setBusy]=useState(false); const [error,setError]=useState('');
-  async function createSubmit(e){e.preventDefault();setBusy(true);setError('');try{await onCreate(name.trim(),tag.trim().toUpperCase(),callsign.trim());}catch(e){setError(e.message||'Could not create clan.')}finally{setBusy(false)}}
-  async function joinSubmit(e){e.preventDefault();setBusy(true);setError('');try{await onJoin(invite.trim().toLowerCase(),callsign.trim());}catch(e){setError(e.message||'Could not join clan.')}finally{setBusy(false)}}
-  return <div className="login"><div className="login-card wide"><div className="brand large">HLL // COMMAND<small>CLAN OPERATIONS HUB</small></div><div className="eyebrow">FIRST-TIME SETUP</div><h1>{mode==='create'?'CREATE YOUR CLAN':'JOIN YOUR CLAN'}</h1><p>Welcome {user.user_metadata?.name || user.email}. Set the name your clan should see you as in game.</p><label>CALLSIGN / IN-GAME NAME<input value={callsign} onChange={e=>setCallsign(e.target.value)} placeholder="Raven" maxLength={32} required/></label><div className="tabs auth-tabs"><button type="button" className={mode==='create'?'active':''} onClick={()=>{setMode('create');setError('')}}>CREATE CLAN</button><button type="button" className={mode==='join'?'active':''} onClick={()=>{setMode('join');setError('')}}>JOIN CLAN</button></div>{mode==='create'?<form onSubmit={createSubmit} className="stack"><label>Clan name<input value={name} onChange={e=>setName(e.target.value)} placeholder="7th Armored Division" required/></label><label>Clan tag<input value={tag} onChange={e=>setTag(e.target.value)} placeholder="7AD" maxLength={8} required/></label>{error&&<div className="error">{error}</div>}<button className="btn primary" disabled={busy}>{busy?'CREATING…':'CREATE CLAN'} <Plus size={15}/></button></form>:<form onSubmit={joinSubmit} className="stack"><label>Clan invite code<input value={invite} onChange={e=>setInvite(e.target.value)} placeholder="a1b2c3d4" maxLength={16} required/></label><div className="callout">Your commander can find the invite code under <b>Members</b>.</div>{error&&<div className="error">{error}</div>}<button className="btn primary" disabled={busy}>{busy?'JOINING…':'JOIN CLAN'} <Users size={15}/></button></form>}<div className="login-foot">{supabase?'Cloud accounts enabled':'Demo mode enabled'}</div></div></div>
+  const [mode,setMode]=useState('create'); const [name,setName]=useState(''); const [tag,setTag]=useState(''); const [invite,setInvite]=useState(''); const [busy,setBusy]=useState(false); const [error,setError]=useState('');
+  async function createSubmit(e){e.preventDefault();setBusy(true);setError('');try{await onCreate(name.trim(),tag.trim().toUpperCase());}catch(e){setError(e.message||'Could not create clan.')}finally{setBusy(false)}}
+  async function joinSubmit(e){e.preventDefault();setBusy(true);setError('');try{await onJoin(invite.trim().toLowerCase());}catch(e){setError(e.message||'Could not join clan.')}finally{setBusy(false)}}
+  return <div className="login"><div className="login-card wide"><div className="brand large">HLL // COMMAND<small>CLAN OPERATIONS HUB</small></div><div className="eyebrow">FIRST-TIME SETUP</div><h1>{mode==='create'?'CREATE YOUR CLAN':'JOIN YOUR CLAN'}</h1><p>Welcome {user.user_metadata?.name || user.email}. {mode==='create'?'Create the clan workspace that will hold your operations, players, maps and briefings.':'Enter the invite code supplied by your commander to join the existing clan workspace.'}</p><div className="tabs auth-tabs"><button className={mode==='create'?'active':''} onClick={()=>{setMode('create');setError('')}}>CREATE CLAN</button><button className={mode==='join'?'active':''} onClick={()=>{setMode('join');setError('')}}>JOIN CLAN</button></div>{mode==='create'?<form onSubmit={createSubmit} className="stack"><label>Clan name<input value={name} onChange={e=>setName(e.target.value)} placeholder="7th Armored Division" required/></label><label>Clan tag<input value={tag} onChange={e=>setTag(e.target.value)} placeholder="7AD" maxLength={8} required/></label>{error&&<div className="error">{error}</div>}<button className="btn primary" disabled={busy}>{busy?'CREATING…':'CREATE CLAN'} <Plus size={15}/></button></form>:<form onSubmit={joinSubmit} className="stack"><label>Clan invite code<input value={invite} onChange={e=>setInvite(e.target.value)} placeholder="a1b2c3d4" maxLength={16} required/></label><div className="callout">Your commander can find the invite code under <b>Members</b> after logging in.</div>{error&&<div className="error">{error}</div>}<button className="btn primary" disabled={busy}>{busy?'JOINING…':'JOIN CLAN'} <Users size={15}/></button></form>}<div className="login-foot">{supabase?'Cloud accounts enabled':'Demo mode enabled'}</div></div></div>
 }
 function Login(){
   const [email,setEmail]=useState(''); const [password,setPassword]=useState(''); const [busy,setBusy]=useState(false); const [error,setError]=useState('');
@@ -946,12 +942,13 @@ function Members({clan,user,data,setClan}){
   }
   async function toggleActive(memberId){const member=members.find(m=>m.id===memberId);if(!member)return;await updateMember(memberId,{active:!member.active});}
   async function copyInvite(){if(!clan?.inviteCode)return;try{await navigator.clipboard.writeText(clan.inviteCode);setCopied(true);setTimeout(()=>setCopied(false),1500);}catch{setCopied(false)}}
+  async function rotateInvite(){if(!admin||!supabase||!clan?.id)return; setBusyId('invite'); setError(''); try{const {data:code,error:e}=await supabase.rpc('rotate_clan_invite'); if(e)throw e; const next=Array.isArray(code)?code[0]?.invite_code:code?.invite_code; if(!next)throw new Error('Could not rotate invite code.'); setClan(c=>c?{...c,inviteCode:next}:c); setCopied(false);}catch(e){setError(e.message||'Could not rotate invite code.');}finally{setBusyId('')}}
   return <>
     <PageHead eyebrow="PERSONNEL COMMAND" title="CLAN MEMBERS" subtitle="ACCOUNTS · ROLES · ACCESS · INVITES" actions={<Tag tone={admin?"green":"yellow"}>{admin?"COMMAND ADMIN":"READ ONLY"}</Tag>}/>
     <div className="grid g3">
       <div className="card stat"><div className="k">ACTIVE MEMBERS</div><div className="v">{members.filter(m=>m.active).length}</div><div className="s">CURRENT CLAN ACCOUNTS</div></div>
       <div className="card stat"><div className="k">COMMAND</div><div className="v">{members.filter(m=>m.active&&(m.role==='commander'||m.role==='co')).length}</div><div className="s">COMMANDER + CO</div></div>
-      {admin?<div className="card"><div className="section-head"><h3>Clan invite</h3><span>COMMAND ONLY</span></div><div className="invite-code">{clan?.inviteCode||'—'}</div><button className="btn primary" onClick={copyInvite} disabled={!clan?.inviteCode}><Copy size={14}/> {copied?'COPIED':'COPY INVITE CODE'}</button><p className="member-help">Share this code only with people you want to join the clan.</p></div>:<div className="card"><div className="section-head"><h3>Invite access</h3><span>LOCKED</span></div><p className="subtitle">Ask your commander for the current clan invite code.</p><Tag tone="yellow">COMMAND ONLY</Tag></div>}
+      {admin?<div className="card"><div className="section-head"><h3>Clan invite</h3><span>COMMAND ONLY</span></div><div className="invite-code">{clan?.inviteCode||'—'}</div><div className="button-row"><button className="btn primary" onClick={copyInvite} disabled={!clan?.inviteCode}><Copy size={14}/> {copied?'COPIED':'COPY INVITE CODE'}</button><button className="btn" onClick={rotateInvite} disabled={busyId==='invite'}>{busyId==='invite'?'ROTATING…':'ROTATE CODE'}</button></div><p className="member-help">Rotating invalidates the old code. Share the new code only with trusted clan members.</p></div>:<div className="card"><div className="section-head"><h3>Invite access</h3><span>LOCKED</span></div><p className="subtitle">Ask your commander for the current clan invite code.</p><Tag tone="yellow">COMMAND ONLY</Tag></div>}
     </div>
     {error&&<div className="error section">{error}</div>}
     <div className="card section">
