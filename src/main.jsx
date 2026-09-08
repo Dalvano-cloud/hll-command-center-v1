@@ -210,6 +210,8 @@ function useClanStore(user){
   const [loading,setLoading]=useState(!!supabase);
   const [error,setError]=useState('');
   const [needsOnboarding,setNeedsOnboarding]=useState(false);
+  const [pendingMembership,setPendingMembership]=useState(false);
+  const [inactiveMembership,setInactiveMembership]=useState(false);
   const [hydrated,setHydrated]=useState(false);
 
   useEffect(()=>{
@@ -221,9 +223,12 @@ function useClanStore(user){
         return;
       }
       setLoading(true); setHydrated(false);
-      const {data:member,error:memberError}=await supabase.from('clan_members').select('clan_id,role,callsign,primary_role,clans(id,name,tag,invite_code)').eq('user_id',user.id).eq('active',true).limit(1).maybeSingle();
+      const {data:member,error:memberError}=await supabase.from('clan_members').select('clan_id,role,callsign,primary_role,active,membership_status,clans(id,name,tag,invite_code)').eq('user_id',user.id).order('created_at',{ascending:false}).limit(1).maybeSingle();
       if(memberError){ if(!cancelled){setError(memberError.message);setLoading(false);} return; }
-      if(!member){ if(!cancelled){setNeedsOnboarding(true);setLoading(false);setHydrated(true);} return; }
+      if(!member){ if(!cancelled){setNeedsOnboarding(true);setPendingMembership(false);setInactiveMembership(false);setLoading(false);setHydrated(true);} return; }
+      if(member.membership_status==='pending'){ if(!cancelled){setClan({id:member.clan_id,name:member.clans?.name||'Clan',tag:member.clans?.tag||'',inviteCode:'',role:member.role,callsign:member.callsign||user.user_metadata?.name||user.email?.split('@')[0]||'Player'});setPendingMembership(true);setInactiveMembership(false);setNeedsOnboarding(false);setLoading(false);setHydrated(true);} return; }
+      if(member.membership_status==='inactive'||member.active===false){ if(!cancelled){setClan({id:member.clan_id,name:member.clans?.name||'Clan',tag:member.clans?.tag||'',inviteCode:'',role:member.role,callsign:member.callsign||user.user_metadata?.name||user.email?.split('@')[0]||'Player'});setInactiveMembership(true);setPendingMembership(false);setNeedsOnboarding(false);setLoading(false);setHydrated(true);} return; }
+      setPendingMembership(false); setInactiveMembership(false);
       const {data:memberRows,error:membersError}=await supabase.from('clan_members').select('id,user_id,callsign,primary_role,role,active,profiles(display_name)').eq('clan_id',member.clan_id).eq('active',true).order('created_at');
       if(membersError){ if(!cancelled){setError(membersError.message);setLoading(false);} return; }
       const members=(memberRows||[]).map(m=>({id:m.user_id,name:m.callsign||m.profiles?.display_name||'Player',primary_role:m.primary_role,role:m.role}));
@@ -281,10 +286,9 @@ function useClanStore(user){
     if(!supabase){setClan({id:'demo-clan',name:'HLL Demo Clan',tag:'DEMO',inviteCode:'demo1234',role:'player',callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'});setNeedsOnboarding(false);return;}
     const {data:joined,error:joinError}=await supabase.rpc('join_clan_by_invite',{p_code:inviteCode}); if(joinError) throw joinError;
     const row=Array.isArray(joined)?joined[0]:joined; if(!row?.clan_id) throw new Error('Could not join clan.');
-    const {data:stateRow,error:stateError}=await supabase.from('clan_app_state').select('data').eq('clan_id',row.clan_id).maybeSingle(); if(stateError) throw stateError;
-    setClan({id:row.clan_id,name:row.clan_name,tag:row.clan_tag,inviteCode:inviteCode,role:row.member_role,callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'}); setData(normalizeData(stateRow?.data||seed)); setNeedsOnboarding(false); setHydrated(true);
+    setClan({id:row.clan_id,name:row.clan_name,tag:row.clan_tag,inviteCode:inviteCode,role:row.member_role,callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'}); setData(normalizeData(seed)); setNeedsOnboarding(false); setPendingMembership(true); setInactiveMembership(false); setHydrated(true);
   }
-  return {data,setData,clan,setClan,loading,error,needsOnboarding,createClan,joinClan};
+  return {data,setData,clan,setClan,loading,error,needsOnboarding,pendingMembership,inactiveMembership,createClan,joinClan};
 }
 
 function useAuth(){
@@ -304,6 +308,8 @@ function AuthenticatedApp({session}){
   const store=useClanStore(session.user);
   if(store.loading) return <div className="splash"><Shield size={36}/><div>LOADING CLAN DATA</div></div>;
   if(store.needsOnboarding) return <Onboarding user={session.user} onCreate={store.createClan} onJoin={store.joinClan}/>;
+  if(store.pendingMembership) return <MembershipWaiting clan={store.clan} user={session.user}/>;
+  if(store.inactiveMembership) return <MembershipInactive clan={store.clan}/>;
   if(store.error) return <div className="splash"><Shield size={36}/><div><b>DATA CONNECTION ERROR</b><small>{store.error}</small></div></div>;
   return <Shell session={session} store={store}/>;
 }
@@ -913,11 +919,19 @@ function Roster({data,setData,embedded=false}){
   </div>;
 }
 
+function MembershipWaiting({clan,user}){
+  const [checking,setChecking]=useState(false);
+  async function check(){ if(!supabase)return; setChecking(true); try{ const {data:rows,error}=await supabase.rpc('get_my_membership_status'); if(error)throw error; const row=Array.isArray(rows)?rows[0]:rows; if(row?.membership_status==='active'||row?.membership_status==='inactive') window.location.reload(); }catch{} finally{setChecking(false);} }
+  useEffect(()=>{const t=setInterval(check,12000);return()=>clearInterval(t)},[]);
+  return <div className="splash"><Shield size={36}/><div><div className="eyebrow">MEMBERSHIP REQUEST</div><h2>AWAITING COMMAND APPROVAL</h2><small>{clan?.name||'Clan'} · {user?.email}</small><p className="muted">Your account is waiting for a Commander or CO to approve your membership. The page will check automatically.</p><button className="btn primary" onClick={check} disabled={checking}>{checking?'CHECKING…':'CHECK STATUS'}</button></div></div>}
+
+function MembershipInactive({clan}){return <div className="splash"><Shield size={36}/><div><div className="eyebrow">ACCESS SUSPENDED</div><h2>MEMBERSHIP INACTIVE</h2><small>{clan?.name||'Clan'}</small><p className="muted">Your clan membership is currently inactive. Contact your Commander or CO if this is unexpected.</p></div></div>}
+
 function Members({clan,user,data,setClan}){
   const [members,setMembers]=useState([]); const [loading,setLoading]=useState(true); const [error,setError]=useState(''); const [copied,setCopied]=useState(false); const [query,setQuery]=useState(''); const [statusFilter,setStatusFilter]=useState('active'); const [busyId,setBusyId]=useState('');
   const load=async()=>{
     if(!supabase||!clan?.id){setMembers((data.players||[]).map(p=>({id:p.id,callsign:p.name,role:p.role,user_id:p.memberUserId,active:true,primary_role:p.role})));setLoading(false);return;}
-    setLoading(true); const {data:rows,error:e}=await supabase.from('clan_members').select('id,user_id,callsign,primary_role,role,active,created_at').eq('clan_id',clan.id).order('created_at',{ascending:true}); setMembers(rows||[]); setError(e?.message||''); setLoading(false);
+    setLoading(true); const {data:rows,error:e}=await supabase.from('clan_members').select('id,user_id,callsign,primary_role,role,active,membership_status,created_at').eq('clan_id',clan.id).order('created_at',{ascending:true}); setMembers(rows||[]); setError(e?.message||''); setLoading(false);
   };
   useEffect(()=>{let live=true;(async()=>{await load();})();return()=>{live=false}},[clan?.id,data.players.length]);
   const admin=canManageMembers(clan);
@@ -925,7 +939,7 @@ function Members({clan,user,data,setClan}){
     const text=`${m.callsign||''} ${m.primary_role||''} ${m.role||''}`.toLowerCase();
     const q=query.trim().toLowerCase();
     const matchesQuery=!q||text.includes(q);
-    const matchesStatus=statusFilter==='all'||(statusFilter==='active'?m.active:!m.active);
+    const matchesStatus=statusFilter==='all'||(statusFilter==='active'?m.membership_status==='active':statusFilter==='pending'?m.membership_status==='pending':m.membership_status==='inactive');
     return matchesQuery&&matchesStatus;
   });
   async function updateMember(memberId,patch){
@@ -933,7 +947,7 @@ function Members({clan,user,data,setClan}){
     const member=members.find(m=>m.id===memberId); if(!member)return;
     if(member.user_id===user?.id && patch.active===false){setError('You cannot deactivate your own commander account.');return;}
     setBusyId(memberId); setError('');
-    try{const {data:updated,error:e}=await supabase.from('clan_members').update(patch).eq('id',memberId).eq('clan_id',clan.id).select('id,user_id,callsign,primary_role,role,active,created_at').single(); if(e)throw e; setMembers(ms=>ms.map(m=>m.id===memberId?updated:m)); if(member.user_id===user?.id && patch.role&&setClan)setClan(c=>c?{...c,role:patch.role}:c);}catch(e){setError(e.message||'Could not update member.');}finally{setBusyId('');}
+    try{const {data:updated,error:e}=await supabase.from('clan_members').update(patch).eq('id',memberId).eq('clan_id',clan.id).select('id,user_id,callsign,primary_role,role,active,membership_status,created_at').single(); if(e)throw e; setMembers(ms=>ms.map(m=>m.id===memberId?updated:m)); if(member.user_id===user?.id && patch.role&&setClan)setClan(c=>c?{...c,role:patch.role}:c);}catch(e){setError(e.message||'Could not update member.');}finally{setBusyId('');}
   }
   async function updateRole(memberId,newRole){
     const member=members.find(m=>m.id===memberId); if(!member)return;
@@ -941,6 +955,9 @@ function Members({clan,user,data,setClan}){
     await updateMember(memberId,{role:newRole});
   }
   async function toggleActive(memberId){const member=members.find(m=>m.id===memberId);if(!member)return;await updateMember(memberId,{active:!member.active});}
+  async function approveMember(memberId){if(!admin||!supabase)return;setBusyId(memberId);setError('');try{const {data:updated,error:e}=await supabase.rpc('approve_clan_member',{p_member_id:memberId});if(e)throw e;setMembers(ms=>ms.map(m=>m.id===memberId?updated:m));}catch(e){setError(e.message||'Could not approve member.');}finally{setBusyId('');}}
+  async function rejectMember(memberId){if(!admin||!supabase)return;setBusyId(memberId);setError('');try{const {data:updated,error:e}=await supabase.rpc('reject_clan_member',{p_member_id:memberId});if(e)throw e;setMembers(ms=>ms.map(m=>m.id===memberId?updated:m));}catch(e){setError(e.message||'Could not reject member.');}finally{setBusyId('');}}
+
   async function copyInvite(){if(!clan?.inviteCode)return;try{await navigator.clipboard.writeText(clan.inviteCode);setCopied(true);setTimeout(()=>setCopied(false),1500);}catch{setCopied(false)}}
   async function rotateInvite(){if(!admin||!supabase||!clan?.id)return; setBusyId('invite'); setError(''); try{const {data:code,error:e}=await supabase.rpc('rotate_clan_invite'); if(e)throw e; const next=Array.isArray(code)?code[0]?.invite_code:code?.invite_code; if(!next)throw new Error('Could not rotate invite code.'); setClan(c=>c?{...c,inviteCode:next}:c); setCopied(false);}catch(e){setError(e.message||'Could not rotate invite code.');}finally{setBusyId('')}}
   return <>
@@ -952,15 +969,15 @@ function Members({clan,user,data,setClan}){
     </div>
     {error&&<div className="error section">{error}</div>}
     <div className="card section">
-      <div className="toolbar member-toolbar"><div className="search"><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search callsign or role…"/></div><div className="member-filters"><button className={statusFilter==='active'?'active':''} onClick={()=>setStatusFilter('active')}>ACTIVE</button><button className={statusFilter==='inactive'?'active':''} onClick={()=>setStatusFilter('inactive')}>INACTIVE</button><button className={statusFilter==='all'?'active':''} onClick={()=>setStatusFilter('all')}>ALL</button></div></div>
+      <div className="toolbar member-toolbar"><div className="search"><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search callsign or role…"/></div><div className="member-filters"><button className={statusFilter==='active'?'active':''} onClick={()=>setStatusFilter('active')}>ACTIVE</button><button className={statusFilter==='pending'?'active':''} onClick={()=>setStatusFilter('pending')}>PENDING</button><button className={statusFilter==='inactive'?'active':''} onClick={()=>setStatusFilter('inactive')}>INACTIVE</button><button className={statusFilter==='all'?'active':''} onClick={()=>setStatusFilter('all')}>ALL</button></div></div>
       <div className="section-head"><div><h3>Member roster</h3><small>{loading?'LOADING…':`${filtered.length} MATCHING MEMBERS`}</small></div><span>LIVE FROM SUPABASE</span></div>
       <div className="table-scroll"><table className="table"><thead><tr><th>CALLSIGN</th><th>PRIMARY ROLE</th><th>ACCESS ROLE</th><th>STATUS</th><th>ACTIONS</th></tr></thead><tbody>
       {filtered.map(m=><tr key={m.id} className={!m.active?'member-inactive':''}>
         <td><div className="member-cell"><div className="avatar sm">{(m.callsign||'P').slice(0,1).toUpperCase()}</div><div><b>{m.callsign||'Unnamed player'}</b><small>{m.user_id===user?.id?'YOU':(m.user_id||'').slice(0,8)}</small></div></div></td>
         <td><span>{m.primary_role||'RIFLEMAN'}</span></td>
         <td>{admin?<select value={m.role||'player'} onChange={e=>updateRole(m.id,e.target.value)} disabled={busyId===m.id || (m.user_id===user?.id&&m.role==='commander')}>{(m.user_id===user?.id&&m.role==='commander'?['commander']:['co','squad_lead','player','recruit']).map(r=><option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</select>:<Tag tone={m.role==='commander'?'green':m.role==='squad_lead'?'yellow':''}>{ROLE_LABELS[m.role]||'PLAYER'}</Tag>}</td>
-        <td><Tag tone={m.active?'green':'red'}>{m.active?'ACTIVE':'INACTIVE'}</Tag></td>
-        <td>{admin&&m.user_id!==user?.id?<button className="btn mini-action" onClick={()=>toggleActive(m.id)} disabled={busyId===m.id}>{busyId===m.id?'SAVING…':m.active?'DEACTIVATE':'REACTIVATE'}</button>:<span className="muted">—</span>}</td>
+        <td><Tag tone={m.membership_status==='active'?'green':m.membership_status==='pending'?'yellow':'red'}>{(m.membership_status|| (m.active?'active':'inactive')).toUpperCase()}</Tag></td>
+        <td>{admin&&m.user_id!==user?.id?(m.membership_status==='pending'?<div className="button-row"><button className="btn mini-action primary" onClick={()=>approveMember(m.id)} disabled={busyId===m.id}>APPROVE</button><button className="btn mini-action" onClick={()=>rejectMember(m.id)} disabled={busyId===m.id}>REJECT</button></div>:<button className="btn mini-action" onClick={()=>toggleActive(m.id)} disabled={busyId===m.id}>{busyId===m.id?'SAVING…':m.active?'DEACTIVATE':'REACTIVATE'}</button>):<span className="muted">—</span>}</td>
       </tr>)}
       {!filtered.length&&!loading&&<tr><td colSpan="5"><div className="empty-state"><h3>No members found</h3><p className="muted">Try another search or status filter.</p></div></td></tr>}
       </tbody></table></div>
