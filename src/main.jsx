@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, NavLink, Route, Routes, useLocation, useNavigate, useParams, Link } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
@@ -214,6 +214,7 @@ function useClanStore(user){
   const [pendingMembership,setPendingMembership]=useState(false);
   const [inactiveMembership,setInactiveMembership]=useState(false);
   const [hydrated,setHydrated]=useState(false);
+  const lastRemoteDataRef=useRef('');
 
   useEffect(()=>{
     let cancelled=false;
@@ -252,8 +253,15 @@ function useClanStore(user){
 
   useEffect(()=>{
     if(!clan || loading || !hydrated) return;
+    const serialized=JSON.stringify(data);
+    // A realtime UPDATE can be our own persistence write. Consume that snapshot
+    // once so it does not immediately write the same state back again.
+    if(lastRemoteDataRef.current===serialized){
+      lastRemoteDataRef.current='';
+      return;
+    }
     const timer=setTimeout(async()=>{
-      if(!supabase){localStorage.setItem('hll-command-data',JSON.stringify(data));return;}
+      if(!supabase){localStorage.setItem('hll-command-data',serialized);return;}
       const canWriteWorkspace=['commander','co'].includes(clan.role);
       if(canWriteWorkspace){
         const {error:upsertError}=await supabase.from('clan_app_state').upsert({clan_id:clan.id,data,updated_at:new Date().toISOString()},{onConflict:'clan_id'});
@@ -269,10 +277,15 @@ function useClanStore(user){
   useEffect(()=>{
     if(!supabase || !clan?.id || !['commander','co'].includes(clan.role)) return;
     const channel=supabase.channel(`clan-state-${clan.id}`)
-      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'clan_app_state',filter:`clan_id=eq.${clan.id}`},payload=>{if(payload.new?.data) setData(normalizeData(payload.new.data));})
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'clan_app_state',filter:`clan_id=eq.${clan.id}`},payload=>{
+        if(!payload.new?.data) return;
+        const next=normalizeData(payload.new.data);
+        lastRemoteDataRef.current=JSON.stringify(next);
+        setData(next);
+      })
       .subscribe();
     return ()=>{supabase.removeChannel(channel)};
-  },[clan?.id]);
+  },[clan?.id,clan?.role]);
 
   async function createClan(name,tag){
     if(!supabase) {setClan({id:'demo-clan',name,tag,inviteCode:'demo1234',role:'commander',callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'});setNeedsOnboarding(false);return;}
@@ -966,7 +979,14 @@ function Members({clan,user,data,setClan}){
     if(!supabase||!clan?.id){setMembers((data.players||[]).map(p=>({id:p.id,callsign:p.name,role:p.role,user_id:p.memberUserId,active:true,primary_role:p.role})));setLoading(false);return;}
     setLoading(true); const {data:rows,error:e}=await supabase.from('clan_members').select('id,user_id,callsign,primary_role,role,active,membership_status,created_at').eq('clan_id',clan.id).order('created_at',{ascending:true}); setMembers(rows||[]); setError(e?.message||''); setLoading(false);
   };
-  useEffect(()=>{let live=true;(async()=>{await load();})();return()=>{live=false}},[clan?.id,data.players.length]);
+  useEffect(()=>{
+    let cancelled=false;
+    (async()=>{
+      if(cancelled) return;
+      await load();
+    })();
+    return()=>{cancelled=true};
+  },[clan?.id]);
   const admin=canManageMembers(clan);
   const filtered=members.filter(m=>{
     const text=`${m.callsign||''} ${m.primary_role||''} ${m.role||''}`.toLowerCase();
