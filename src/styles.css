@@ -50,3 +50,38 @@
 .member-toolbar{align-items:center}.member-filters{display:flex;gap:5px}.member-filters button{border:1px solid transparent;background:transparent;color:#747b70;padding:8px 10px;font-size:7px;letter-spacing:.12em}.member-filters button.active,.member-filters button:hover{background:#1c1f19;border-color:#3a3f35;color:#e0e2d8}.member-help{font-size:8px;color:var(--muted);line-height:1.5;margin:12px 0 0}.table-scroll{overflow:auto}.member-cell{display:flex;align-items:center;gap:9px}.member-cell b{display:block}.member-inactive{opacity:.65}.mini-action{padding:6px 8px;font-size:7px}.empty-state{padding:22px;text-align:center}.empty-state h3{margin:0 0 5px;font-size:14px}.empty-state p{margin:0;font-size:9px}
 
 .button-row{display:flex;gap:8px;flex-wrap:wrap}
+
+/* UI regression fix: keep command forms on the dark HLL theme and prevent
+   the sidebar footer from overlapping navigation on shorter screens. */
+textarea,
+select,
+input[type='text'],
+input[type='email'],
+input[type='password'],
+input[type='search'],
+input[type='url'],
+input[type='number']{
+  background:#10120f !important;
+  color:#e2e4da !important;
+  border:1px solid #363930 !important;
+  border-radius:3px;
+  caret-color:var(--green2);
+  color-scheme:dark;
+}
+textarea::placeholder,
+input::placeholder{color:#686f63 !important;opacity:1}
+textarea:focus,
+select:focus,
+input:focus{outline:none}
+
+.sidebar{display:flex;flex-direction:column}
+.sidebar nav{flex:none}
+.side-bottom{position:static;margin-top:auto;flex:none}
+
+@media(max-height:820px) and (min-width:761px){
+  .sidebar{padding-top:14px;padding-bottom:10px}
+  .brand{margin-bottom:18px}
+  .sidebar nav{gap:2px}
+  .navitem{padding:8px 12px}
+  .side-bottom{padding-top:9px;line-height:1.5}
+}
