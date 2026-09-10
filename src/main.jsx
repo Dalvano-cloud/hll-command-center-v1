@@ -974,7 +974,7 @@ function MembershipWaiting({clan,user}){
 function MembershipInactive({clan}){return <div className="splash"><Shield size={36}/><div><div className="eyebrow">ACCESS SUSPENDED</div><h2>MEMBERSHIP INACTIVE</h2><small>{clan?.name||'Clan'}</small><p className="muted">Your clan membership is currently inactive. Contact your Commander or CO if this is unexpected.</p><button className="btn" onClick={async()=>{if(supabase) await supabase.auth.signOut(); else window.location.reload();}}><LogOut size={15}/> SIGN OUT</button></div></div>}
 
 function Members({clan,user,data,setClan}){
-  const [members,setMembers]=useState([]); const [loading,setLoading]=useState(true); const [error,setError]=useState(''); const [copied,setCopied]=useState(false); const [query,setQuery]=useState(''); const [statusFilter,setStatusFilter]=useState('active'); const [busyId,setBusyId]=useState('');
+  const [members,setMembers]=useState([]); const [loading,setLoading]=useState(true); const [error,setError]=useState(''); const [copied,setCopied]=useState(false); const [query,setQuery]=useState(''); const [statusFilter,setStatusFilter]=useState('active'); const [busyId,setBusyId]=useState(''); const [analytics,setAnalytics]=useState({}); const [analyticsLoading,setAnalyticsLoading]=useState(false);
   const load=async()=>{
     if(!supabase||!clan?.id){setMembers((data.players||[]).map(p=>({id:p.id,callsign:p.name,role:p.role,user_id:p.memberUserId,active:true,primary_role:p.role})));setLoading(false);return;}
     setLoading(true); const {data:rows,error:e}=await supabase.from('clan_members').select('id,user_id,callsign,primary_role,role,active,membership_status,created_at').eq('clan_id',clan.id).order('created_at',{ascending:true}); setMembers(rows||[]); setError(e?.message||''); setLoading(false);
@@ -985,6 +985,48 @@ function Members({clan,user,data,setClan}){
       if(cancelled) return;
       await load();
     })();
+    return()=>{cancelled=true};
+  },[clan?.id]);
+
+  useEffect(()=>{
+    let cancelled=false;
+    async function loadAnalytics(){
+      if(!supabase||!clan?.id){setAnalytics({});return;}
+      setAnalyticsLoading(true);
+      try{
+        const {data:rows,error:e}=await supabase.from('roster_assignments').select('user_id,attendance,ready,operations(status,scheduled_at)').eq('operations.clan_id',clan.id).limit(5000);
+        if(e) throw e;
+        const now=Date.now();
+        const map={};
+        for(const r of (rows||[])){
+          const a=map[r.user_id]||(map[r.user_id]={ops:0,responded:0,going:0,ready:0,recent:[],noShow:0});
+          a.ops++;
+          if(['going','maybe','declined'].includes(r.attendance)) a.responded++;
+          if(r.attendance==='going') a.going++;
+          if(r.ready) a.ready++;
+          if(r.attendance==='going'&&!r.ready) a.noShow++;
+          const ts=r.operations?.scheduled_at?new Date(r.operations.scheduled_at).getTime():0;
+          a.recent.push({ts,attendance:r.attendance,ready:r.ready});
+        }
+        for(const uid of Object.keys(map)){
+          const a=map[uid];
+          a.recent.sort((x,y)=>y.ts-x.ts);
+          const half=Math.max(1,Math.ceil(a.recent.length/2));
+          const recent=a.recent.slice(0,half);
+          const older=a.recent.slice(half);
+          a.attendancePct=a.ops?Math.round(a.going/a.ops*100):0;
+          a.responsePct=a.ops?Math.round(a.responded/a.ops*100):0;
+          a.readinessPct=a.ops?Math.round(((a.going/a.ops)*70)+((a.ready/a.ops)*30)):0;
+          const rPct=recent.length?Math.round(recent.filter(x=>x.attendance==='going').length/recent.length*100):0;
+          const oPct=older.length?Math.round(older.filter(x=>x.attendance==='going').length/older.length*100):rPct;
+          a.trend=rPct>oPct+10?'UP':rPct<oPct-10?'DOWN':'STABLE';
+          a.scoreLabel=a.ops===0?'NO DATA':a.readinessPct>=80?'READY':a.readinessPct>=60?'WATCH':'LOW';
+        }
+        if(!cancelled)setAnalytics(map);
+      }catch(e){ if(!cancelled)setError(e.message||'Could not load personnel analytics.'); }
+      finally{if(!cancelled)setAnalyticsLoading(false);}
+    }
+    loadAnalytics();
     return()=>{cancelled=true};
   },[clan?.id]);
   const admin=canManageMembers(clan);
@@ -1024,15 +1066,16 @@ function Members({clan,user,data,setClan}){
     <div className="card section">
       <div className="toolbar member-toolbar"><div className="search"><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search callsign or role…"/></div><div className="member-filters"><button className={statusFilter==='active'?'active':''} onClick={()=>setStatusFilter('active')}>ACTIVE</button><button className={statusFilter==='pending'?'active':''} onClick={()=>setStatusFilter('pending')}>PENDING</button><button className={statusFilter==='inactive'?'active':''} onClick={()=>setStatusFilter('inactive')}>INACTIVE</button><button className={statusFilter==='all'?'active':''} onClick={()=>setStatusFilter('all')}>ALL</button></div></div>
       <div className="section-head"><div><h3>Member roster</h3><small>{loading?'LOADING…':`${filtered.length} MATCHING MEMBERS`}</small></div><span>LIVE FROM SUPABASE</span></div>
-      <div className="table-scroll"><table className="table"><thead><tr><th>CALLSIGN</th><th>PRIMARY ROLE</th><th>ACCESS ROLE</th><th>STATUS</th><th>ACTIONS</th></tr></thead><tbody>
+      <div className="table-scroll"><table className="table"><thead><tr><th>CALLSIGN</th><th>PRIMARY ROLE</th><th>ACCESS ROLE</th><th>STATUS</th><th>READINESS</th><th>ATTENDANCE</th><th>ACTIONS</th></tr></thead><tbody>
       {filtered.map(m=><tr key={m.id} className={!m.active?'member-inactive':''}>
         <td><Link className="member-link" to={`/members/${m.id}`}><div className="member-cell"><div className="avatar sm">{(m.callsign||'P').slice(0,1).toUpperCase()}</div><div><b>{m.callsign||'Unnamed player'}</b><small>{m.user_id===user?.id?'YOU':(m.user_id||'').slice(0,8)}</small></div></div></Link></td>
         <td><span>{m.primary_role||'RIFLEMAN'}</span></td>
         <td>{admin?<select value={m.role||'player'} onChange={e=>updateRole(m.id,e.target.value)} disabled={busyId===m.id || (m.user_id===user?.id&&m.role==='commander')}>{(m.user_id===user?.id&&m.role==='commander'?['commander']:['co','squad_lead','player','recruit']).map(r=><option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</select>:<Tag tone={m.role==='commander'?'green':m.role==='squad_lead'?'yellow':''}>{ROLE_LABELS[m.role]||'PLAYER'}</Tag>}</td>
         <td><Tag tone={m.membership_status==='active'?'green':m.membership_status==='pending'?'yellow':'red'}>{(m.membership_status|| (m.active?'active':'inactive')).toUpperCase()}</Tag></td>
+        {(()=>{const a=analytics[m.user_id]||{ops:0,attendancePct:0,responsePct:0,readinessPct:0,trend:'STABLE',scoreLabel:'NO DATA',noShow:0}; const tone=a.scoreLabel==='READY'?'green':a.scoreLabel==='WATCH'?'yellow':a.scoreLabel==='LOW'?'red':''; return <><td><div className="analytics-cell"><Tag tone={tone}>{analyticsLoading?'—':a.scoreLabel}</Tag><div className="mini-progress"><span style={{width:`${a.readinessPct||0}%`}}/></div><small>{a.readinessPct||0}% · {a.trend}</small></div></td><td><b>{a.attendancePct||0}%</b><small>{a.responsePct||0}% responded · {a.noShow||0} no-ready</small></td></>})()}
         <td>{admin&&m.user_id!==user?.id?(m.membership_status==='pending'?<div className="button-row"><button className="btn mini-action primary" onClick={()=>approveMember(m.id)} disabled={busyId===m.id}>APPROVE</button><button className="btn mini-action" onClick={()=>rejectMember(m.id)} disabled={busyId===m.id}>REJECT</button></div>:<button className="btn mini-action" onClick={()=>toggleActive(m.id)} disabled={busyId===m.id}>{busyId===m.id?'SAVING…':m.active?'DEACTIVATE':'REACTIVATE'}</button>):<span className="muted">—</span>}</td>
       </tr>)}
-      {!filtered.length&&!loading&&<tr><td colSpan="5"><div className="empty-state"><h3>No members found</h3><p className="muted">Try another search or status filter.</p></div></td></tr>}
+      {!filtered.length&&!loading&&<tr><td colSpan="7"><div className="empty-state"><h3>No members found</h3><p className="muted">Try another search or status filter.</p></div></td></tr>}
       </tbody></table></div>
     </div>
   </>
