@@ -396,7 +396,7 @@ function Shell({session,store}){
   return <div className="app"><aside className={sidebar?'sidebar open':'sidebar'}><div className="brand">HLL // COMMAND<small>{clan?.tag ? `${clan.tag} · ` : ''}CLAN OPERATIONS HUB</small></div><nav>{[
     ['/', 'Dashboard', Home],['/command-room','Command Room',Shield],['/my-operation','My Operation',Radio],['/operations','Operations',Swords],['/calendar','Calendar',CalendarDays],['/roster','Roster',Users],['/members','Members',Users],['/strategy','Strategies',Target],['/maps','Stage Maps',MapIcon],['/briefings','Briefings',FileText],['/activity','Command Feed',Activity],['/wiki','Clan Wiki',BookOpen],['/aar','AAR',ClipboardCheck],...(canCommand(clan)?[['/settings','Clan Settings',Settings]]:[])
   ].map(([to,label,Icon])=><NavLink key={to} to={to} onClick={()=>setSidebar(false)} className={({isActive})=>isActive?'navitem active':'navitem'}><Icon size={17}/><span>{label}</span></NavLink>)}</nav><div className="side-bottom"><div className="online"><i/>SYSTEM ONLINE</div><div>{clan?.name || 'HLL Demo Clan'}</div><div className="muted">{supabase ? 'SUPABASE CONNECTED' : 'LOCAL DEMO MODE'}</div></div></aside><main><header className="topbar"><button className="mobile-menu" onClick={()=>setSidebar(v=>!v)}><Menu/></button><TopCrumb/><div className="top-right"><button className="iconbtn" onClick={()=>navigate('/activity')} title="Command Feed"><Bell size={16}/>{activityCount>0&&<em className="activity-badge">{activityCount>99?'99+':activityCount}</em>}</button><button className="profile profile-clickable" onClick={()=>navigate('/profile')} title="Edit profile"><div className="avatar">{displayName.slice(0,1).toUpperCase()}</div><div><b>{displayName}</b><span>{(clan?.role || DEMO_USER.role).toUpperCase()}</span></div></button><button className="iconbtn" onClick={logout} title="Log out"><LogOut size={15}/></button></div></header><div className="content"><Routes>
-    <Route path="/reset-password" element={<ResetPassword/>}/><Route path="/" element={<Dashboard data={data} clan={clan}/>}/><Route path="/my-operation" element={<MyOperation data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/operations" element={<Operations data={data} setData={setData} clan={clan}/>}/><Route path="/operations/:id" element={<OperationDetail data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/calendar" element={<Calendar data={data} setData={setData}/>}/><Route path="/roster" element={<Roster data={data} setData={setData}/>}/><Route path="/members" element={<Members clan={clan} user={user} data={data} setClan={store.setClan}/>}/><Route path="/members/:memberId" element={<MemberProfile clan={clan} user={user} data={data}/>}/><Route path="/settings" element={canCommand(clan)?<ClanSettings clan={clan} setClan={store.setClan}/>:<PermissionCard clan={clan} title="CLAN SETTINGS CONTROLLED" text="Only Commander and CO roles can edit clan settings."/>}/><Route path="/strategy" element={canCommand(clan)?<Strategy data={data} setData={setData}/>:<PermissionCard clan={clan} title="STRATEGY CONTROLLED" text="Commander and CO roles can build and publish clan strategy."/>}/><Route path="/maps" element={canCommand(clan)?<Maps data={data} setData={setData}/>:<PermissionCard clan={clan} title="STAGE MAPS CONTROLLED" text="Command roles manage the tactical map workspace."/>}/><Route path="/briefings" element={canCommand(clan)?<Briefings data={data} setData={setData}/>:<PermissionCard clan={clan} title="BRIEFINGS CONTROLLED" text="Command roles publish player briefings."/>}/><Route path="/activity" element={<ActivityFeed clan={clan} user={user} data={data}/>}/><Route path="/command-room" element={<CommandRoom clan={clan} user={user} data={data}/>}/><Route path="/wiki" element={<Wiki data={data} setData={setData}/>}/><Route path="/aar" element={canCommand(clan)?<AAR data={data} setData={setData}/>:<PermissionCard clan={clan} title="AAR CONTROLLED" text="Command roles own the official after-action review."/>}/><Route path="/profile" element={<Profile user={user} clan={clan} store={store}/>}/>
+    <Route path="/reset-password" element={<ResetPassword/>}/><Route path="/" element={<Dashboard data={data} clan={clan}/>}/><Route path="/my-operation" element={<MyOperation data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/operations" element={<Operations data={data} setData={setData} clan={clan}/>}/><Route path="/operations/:id" element={<OperationDetail data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/calendar" element={<Calendar data={data} setData={setData}/>}/><Route path="/roster" element={<Roster data={data} setData={setData}/>}/><Route path="/members" element={<Members clan={clan} user={user} data={data} setClan={store.setClan}/>}/><Route path="/members/:memberId" element={<MemberProfile clan={clan} user={user} data={data}/>}/><Route path="/squads/:squadName" element={<SquadDeepDive clan={clan} user={user} data={data}/>}/><Route path="/settings" element={canCommand(clan)?<ClanSettings clan={clan} setClan={store.setClan}/>:<PermissionCard clan={clan} title="CLAN SETTINGS CONTROLLED" text="Only Commander and CO roles can edit clan settings."/>}/><Route path="/strategy" element={canCommand(clan)?<Strategy data={data} setData={setData}/>:<PermissionCard clan={clan} title="STRATEGY CONTROLLED" text="Commander and CO roles can build and publish clan strategy."/>}/><Route path="/maps" element={canCommand(clan)?<Maps data={data} setData={setData}/>:<PermissionCard clan={clan} title="STAGE MAPS CONTROLLED" text="Command roles manage the tactical map workspace."/>}/><Route path="/briefings" element={canCommand(clan)?<Briefings data={data} setData={setData}/>:<PermissionCard clan={clan} title="BRIEFINGS CONTROLLED" text="Command roles publish player briefings."/>}/><Route path="/activity" element={<ActivityFeed clan={clan} user={user} data={data}/>}/><Route path="/command-room" element={<CommandRoom clan={clan} user={user} data={data}/>}/><Route path="/wiki" element={<Wiki data={data} setData={setData}/>}/><Route path="/aar" element={canCommand(clan)?<AAR data={data} setData={setData}/>:<PermissionCard clan={clan} title="AAR CONTROLLED" text="Command roles own the official after-action review."/>}/><Route path="/profile" element={<Profile user={user} clan={clan} store={store}/>}/>
   </Routes></div></main></div>
 }
 
@@ -1108,7 +1108,7 @@ function Members({clan,user,data,setClan}){
     {error&&<div className="error section">{error}</div>}
     <div className="card section squad-analytics-card">
       <div className="section-head"><div><h3>Squad performance</h3><small>HISTORICAL ROSTER RELIABILITY · ALL OPS</small></div><span>{squadAnalyticsLoading?'CALCULATING…':squadAnalytics.length?`${squadAnalytics.length} SQUADS`:'NO SQUAD HISTORY'}</span></div>
-      {!squadAnalytics.length?<div className="empty-state"><h3>No squad history</h3><p className="muted">Squad metrics appear after players are assigned to relational operation squads.</p></div>:<div className="table-scroll"><table className="table squad-performance-table"><thead><tr><th>SQUAD</th><th>SL</th><th>OPS</th><th>READINESS</th><th>ATTENDANCE</th><th>TREND</th><th>STATUS</th></tr></thead><tbody>{squadAnalytics.map(a=>{const tone=a.scoreLabel==='READY'?'green':a.scoreLabel==='WATCH'?'yellow':a.scoreLabel==='LOW'?'red':''; return <tr key={a.name}><td><b>{a.name.toUpperCase()}</b></td><td>{a.lead}</td><td>{a.assignments}<small>{a.responsePct}% responded</small></td><td><div className="analytics-cell squad-score"><b>{a.readinessPct}%</b><div className="mini-progress"><span style={{width:`${a.readinessPct||0}%`}}/></div></div></td><td><b>{a.attendancePct}%</b><small>{a.going} going</small></td><td><Tag tone={a.trend==='UP'?'green':a.trend==='DOWN'?'red':'yellow'}>{a.trend}</Tag></td><td><Tag tone={tone}>{a.scoreLabel}</Tag></td></tr>})}</tbody></table></div>}
+      {!squadAnalytics.length?<div className="empty-state"><h3>No squad history</h3><p className="muted">Squad metrics appear after players are assigned to relational operation squads.</p></div>:<div className="table-scroll"><table className="table squad-performance-table"><thead><tr><th>SQUAD</th><th>SL</th><th>OPS</th><th>READINESS</th><th>ATTENDANCE</th><th>TREND</th><th>STATUS</th></tr></thead><tbody>{squadAnalytics.map(a=>{const tone=a.scoreLabel==='READY'?'green':a.scoreLabel==='WATCH'?'yellow':a.scoreLabel==='LOW'?'red':''; return <tr key={a.name}><td><Link className="member-link squad-link" to={`/squads/${encodeURIComponent(a.name)}`}><b>{a.name.toUpperCase()}</b><small>OPEN SQUAD</small></Link></td><td>{a.lead}</td><td>{a.assignments}<small>{a.responsePct}% responded</small></td><td><div className="analytics-cell squad-score"><b>{a.readinessPct}%</b><div className="mini-progress"><span style={{width:`${a.readinessPct||0}%`}}/></div></div></td><td><b>{a.attendancePct}%</b><small>{a.going} going</small></td><td><Tag tone={a.trend==='UP'?'green':a.trend==='DOWN'?'red':'yellow'}>{a.trend}</Tag></td><td><Tag tone={tone}>{a.scoreLabel}</Tag></td></tr>})}</tbody></table></div>}
     </div>
     <div className="card section">
       <div className="toolbar member-toolbar"><div className="search"><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search callsign or role…"/></div><div className="member-filters"><button className={statusFilter==='active'?'active':''} onClick={()=>setStatusFilter('active')}>ACTIVE</button><button className={statusFilter==='pending'?'active':''} onClick={()=>setStatusFilter('pending')}>PENDING</button><button className={statusFilter==='inactive'?'active':''} onClick={()=>setStatusFilter('inactive')}>INACTIVE</button><button className={statusFilter==='all'?'active':''} onClick={()=>setStatusFilter('all')}>ALL</button></div></div>
@@ -1126,6 +1126,83 @@ function Members({clan,user,data,setClan}){
       </tbody></table></div>
     </div>
   </>
+}
+
+
+function SquadDeepDive({clan,user,data}){
+  const {squadName}=useParams();
+  const navigate=useNavigate();
+  const [rows,setRows]=useState([]);
+  const [members,setMembers]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState('');
+
+  useEffect(()=>{
+    let cancelled=false;
+    async function load(){
+      if(!supabase||!clan?.id){setRows([]);setMembers([]);setLoading(false);return;}
+      setLoading(true); setError('');
+      try{
+        const decoded=decodeURIComponent(squadName||'');
+        const {data:assignmentRows,error:e}=await supabase.from('roster_assignments')
+          .select('user_id,role,attendance,ready,created_at,squads(name,squad_lead_id),operations(id,number,name,map_name,scheduled_at,status,clan_id)')
+          .eq('operations.clan_id',clan.id).limit(5000);
+        if(e) throw e;
+        const filtered=(assignmentRows||[]).filter(r=>String(r.squads?.name||'UNASSIGNED').toUpperCase()===String(decoded).toUpperCase());
+        const {data:memberRows,error:me}=await supabase.from('clan_members').select('id,user_id,callsign,primary_role,role,active,membership_status').eq('clan_id',clan.id);
+        if(me) throw me;
+        const memberMap=new Map((memberRows||[]).map(m=>[m.user_id,m]));
+        const grouped={};
+        for(const r of filtered){
+          const m=memberMap.get(r.user_id)||{};
+          const a=grouped[r.user_id]||(grouped[r.user_id]={userId:r.user_id,callsign:m.callsign||'Unnamed player',primaryRole:m.primary_role||r.role||'Rifleman',accessRole:m.role||'player',active:m.active!==false,assignments:0,going:0,ready:0,recent:[]});
+          a.assignments++; if(r.attendance==='going') a.going++; if(r.ready) a.ready++;
+          a.recent.push(r);
+        }
+        const memberList=Object.values(grouped).map(a=>{
+          a.attendancePct=a.assignments?Math.round(a.going/a.assignments*100):0;
+          a.readinessPct=a.assignments?Math.round(((a.going/a.assignments)*70)+((a.ready/a.assignments)*30)):0;
+          a.noReady=Math.max(0,a.going-a.ready);
+          a.recent.sort((x,y)=>new Date(y.operations?.scheduled_at||y.created_at||0)-new Date(x.operations?.scheduled_at||x.created_at||0));
+          return a;
+        }).sort((a,b)=>b.readinessPct-a.readinessPct||b.assignments-a.assignments||a.callsign.localeCompare(b.callsign));
+        if(!cancelled){setRows(filtered);setMembers(memberList);}
+      }catch(e){if(!cancelled)setError(e.message||'Could not load squad history.');}
+      finally{if(!cancelled)setLoading(false);}
+    }
+    load(); return()=>{cancelled=true};
+  },[clan?.id,squadName]);
+
+  const name=decodeURIComponent(squadName||'');
+  const leadId=rows[0]?.squads?.squad_lead_id;
+  const lead=members.find(m=>m.userId===leadId)?.callsign||'NO SL';
+  const ops=new Map();
+  rows.forEach(r=>{if(r.operations?.id&&!ops.has(r.operations.id))ops.set(r.operations.id,r.operations);});
+  const opList=Array.from(ops.values()).sort((a,b)=>new Date(b.scheduled_at||0)-new Date(a.scheduled_at||0));
+  const totals={assignments:rows.length,going:rows.filter(r=>r.attendance==='going').length,ready:rows.filter(r=>r.ready).length};
+  const attendancePct=totals.assignments?Math.round(totals.going/totals.assignments*100):0;
+  const readinessPct=totals.assignments?Math.round((totals.going/totals.assignments*70)+(totals.ready/totals.assignments*30)):0;
+  const scoreLabel=!totals.assignments?'NO DATA':readinessPct>=80?'READY':readinessPct>=60?'WATCH':'LOW';
+  const tone=scoreLabel==='READY'?'green':scoreLabel==='WATCH'?'yellow':scoreLabel==='LOW'?'red':'';
+
+  return <>
+    <PageHead eyebrow="SQUAD INTELLIGENCE" title={`${name.toUpperCase()} DEEP-DIVE`} subtitle="MEMBERS · HISTORY · RELIABILITY" actions={<button className="btn" onClick={()=>navigate('/members')}><ArrowLeft size={14}/> BACK TO MEMBERS</button>}/>
+    {error&&<div className="error section">{error}</div>}
+    <div className="grid g4 squad-hero-grid">
+      <div className="card stat"><div className="k">STATUS</div><div className="v"><Tag tone={tone}>{loading?'—':scoreLabel}</Tag></div><div className="s">SQUAD READINESS</div></div>
+      <div className="card stat"><div className="k">READINESS</div><div className="v">{loading?'—':`${readinessPct}%`}</div><div className="s">70% ATTENDANCE + 30% READY</div></div>
+      <div className="card stat"><div className="k">ATTENDANCE</div><div className="v">{loading?'—':`${attendancePct}%`}</div><div className="s">{totals.going}/{totals.assignments} GOING ASSIGNMENTS</div></div>
+      <div className="card stat"><div className="k">SQUAD LEAD</div><div className="v text-v">{loading?'—':lead}</div><div className="s">{members.length} TRACKED MEMBERS</div></div>
+    </div>
+    <div className="card section">
+      <div className="section-head"><div><h3>Squad roster</h3><small>INDIVIDUAL RELIABILITY INSIDE {name.toUpperCase()}</small></div><span>{members.length} MEMBERS</span></div>
+      {loading?<div className="empty-state"><p>Calculating squad history…</p></div>:!members.length?<div className="empty-state"><h3>No member history</h3><p className="muted">No relational assignments exist for this squad.</p></div>:<div className="table-scroll"><table className="table squad-member-table"><thead><tr><th>CALLSIGN</th><th>ROLE</th><th>OPS</th><th>ATTENDANCE</th><th>READINESS</th><th>NO-READY</th></tr></thead><tbody>{members.map(m=><tr key={m.userId}><td><Link className="member-link" to={`/members/${m.userId}`}><b>{m.callsign.toUpperCase()}</b><small>{m.userId===user?.id?'YOU':''}</small></Link></td><td>{m.primaryRole}</td><td>{m.assignments}</td><td><b>{m.attendancePct}%</b><small>{m.going} going</small></td><td><div className="analytics-cell"><b>{m.readinessPct}%</b><div className="mini-progress"><span style={{width:`${m.readinessPct}%`}}/></div></div></td><td>{m.noReady? <Tag tone="red">{m.noReady}</Tag>:<Tag tone="green">0</Tag>}</td></tr>)}</tbody></table></div>}
+    </div>
+    <div className="card section">
+      <div className="section-head"><div><h3>Operation history</h3><small>RECENT SQUAD ASSIGNMENTS</small></div><span>{opList.length} OPS</span></div>
+      {!opList.length?<div className="empty-state"><p className="muted">No operation history found.</p></div>:<div className="table-scroll"><table className="table squad-history-table"><thead><tr><th>OP</th><th>NAME</th><th>MAP</th><th>DATE</th><th>STATUS</th></tr></thead><tbody>{opList.map(op=><tr key={op.id}><td><Link className="member-link" to={`/operations/${op.id}`}><b>#{op.number||'—'}</b></Link></td><td>{op.name||'Untitled operation'}</td><td>{op.map_name||'—'}</td><td>{op.scheduled_at?new Date(op.scheduled_at).toLocaleString([], {dateStyle:'medium',timeStyle:'short'}):'—'}</td><td><Tag tone={op.status==='active'?'green':op.status==='archived'?'':'yellow'}>{(op.status||'UNKNOWN').toUpperCase()}</Tag></td></tr>)}</tbody></table></div>}
+    </div>
+  </>;
 }
 
 
