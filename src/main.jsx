@@ -1077,7 +1077,7 @@ function MemberProfile({clan,user,data}){
     }
     load();
     return ()=>{live=false};
-  },[clan?.id,memberId,data.players]);
+  },[clan?.id,memberId]);
 
   async function save(e){
     e.preventDefault(); if(!member)return;
@@ -1102,6 +1102,9 @@ function MemberProfile({clan,user,data}){
   const goingCount=operationHistory.filter(x=>x.attendance==='going').length;
   const declinedCount=operationHistory.filter(x=>x.attendance==='declined').length;
   const readyCount=operationHistory.filter(x=>x.ready).length;
+  const readinessScore=assignedCount ? Math.round(((goingCount/assignedCount)*70)+((readyCount/assignedCount)*30)) : 0;
+  const readinessLabel=assignedCount===0?'NO HISTORY':readinessScore>=80?'READY':readinessScore>=60?'WATCH':'LOW';
+  const readinessTone=readinessScore>=80?'green':readinessScore>=60?'yellow':'red';
   return <>
     <PageHead eyebrow="PERSONNEL COMMAND" title={member.callsign||'MEMBER PROFILE'} subtitle="IDENTITY · READINESS · OPERATION HISTORY" actions={<button className="btn" onClick={()=>navigate('/members')}><ArrowLeft size={15}/> BACK TO MEMBERS</button>}/>
     <div className="grid g3">
@@ -1110,6 +1113,7 @@ function MemberProfile({clan,user,data}){
       <div className="card stat"><div className="k">MEMBERSHIP</div><div className="v" style={{fontSize:26}}><Tag tone={statusTone}>{(member.membership_status||'active').toUpperCase()}</Tag></div><div className="s">{isSelf?'YOUR ACCOUNT':'CLAN ACCOUNT'}</div></div>
     </div>
     <div className="grid g4">
+      <div className="card stat"><div className="k">READINESS</div><div className="v">{assignedCount ? `${readinessScore}%` : '—'}</div><div className="s"><Tag tone={readinessTone}>{readinessLabel}</Tag></div></div>
       <div className="card stat"><div className="k">RECENT OPS</div><div className="v">{assignedCount}</div><div className="s">LAST 8 ASSIGNMENTS</div></div>
       <div className="card stat"><div className="k">GOING</div><div className="v">{goingCount}</div><div className="s">RECENT ATTENDANCE</div></div>
       <div className="card stat"><div className="k">READY</div><div className="v">{readyCount}</div><div className="s">MARKED READY</div></div>
