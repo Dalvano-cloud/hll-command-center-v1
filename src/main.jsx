@@ -1054,6 +1054,9 @@ function MemberProfile({clan,user,data}){
   const [squadPreference,setSquadPreference]=useState('');
   const [commandNotes,setCommandNotes]=useState('');
   const [operationHistory,setOperationHistory]=useState([]);
+  const [trainingRecords,setTrainingRecords]=useState([]);
+  const [trainingBusy,setTrainingBusy]=useState(false);
+  const [trainingDraft,setTrainingDraft]=useState({training_date:new Date().toISOString().slice(0,10),category:'TRAINING',session:'',result:'COMPLETED',score:'',notes:''});
 
   useEffect(()=>{
     let live=true;
@@ -1073,11 +1076,37 @@ function MemberProfile({clan,user,data}){
       setMember(row); setCallsign(row.callsign||''); setPrimaryRole(row.primary_role||'Rifleman'); setAccessRole(row.role||'player'); setSquadPreference(row.squad_preference||''); setCommandNotes(row.command_notes||'');
       const {data:history}=await supabase.from('roster_assignments').select('attendance,ready,role,squads(name),operations(number,name,map_name,scheduled_at,status)').eq('user_id',row.user_id).order('created_at',{ascending:false}).limit(8);
       if(live)setOperationHistory(history||[]);
+      const {data:training,error:trainingError}=await supabase.from('member_training_records').select('id,training_date,category,session,result,score,notes,created_at').eq('member_id',row.id).order('training_date',{ascending:false}).order('created_at',{ascending:false}).limit(12);
+      if(live){setTrainingRecords(training||[]); if(trainingError && !error)setError(trainingError.message||'Could not load training records.');}
       setLoading(false);
     }
     load();
     return ()=>{live=false};
   },[clan?.id,memberId]);
+
+  async function addTrainingRecord(e){
+    e.preventDefault();
+    if(!admin || !member || !supabase || !trainingDraft.session.trim()) return;
+    setTrainingBusy(true); setError(''); setMessage('');
+    try{
+      const payload={clan_id:clan.id,member_id:member.id,training_date:trainingDraft.training_date,category:trainingDraft.category.trim()||'TRAINING',session:trainingDraft.session.trim(),result:trainingDraft.result,score:trainingDraft.score===''?null:Number(trainingDraft.score),notes:trainingDraft.notes.trim()||null,created_by:user.id};
+      const {data:created,error:e}=await supabase.from('member_training_records').insert(payload).select('id,training_date,category,session,result,score,notes,created_at').single();
+      if(e)throw e;
+      setTrainingRecords(rows=>[created,...rows].sort((a,b)=>String(b.training_date).localeCompare(String(a.training_date))));
+      setTrainingDraft({training_date:new Date().toISOString().slice(0,10),category:'TRAINING',session:'',result:'COMPLETED',score:'',notes:''});
+      setMessage('Training record added.');
+      await logActivity(clan.id,'training_record','Training record added',`${member.callsign||'Member'} · ${created.session}`,null,member.user_id,{result:created.result,score:created.score});
+    }catch(err){setError(err.message||'Could not add training record.');}
+    finally{setTrainingBusy(false);}
+  }
+
+  async function deleteTrainingRecord(recordId){
+    if(!admin || !supabase) return;
+    setTrainingBusy(true); setError('');
+    try{const {error:e}=await supabase.from('member_training_records').delete().eq('id',recordId).eq('clan_id',clan.id); if(e)throw e; setTrainingRecords(rows=>rows.filter(r=>r.id!==recordId));}
+    catch(err){setError(err.message||'Could not delete training record.');}
+    finally{setTrainingBusy(false);}
+  }
 
   async function save(e){
     e.preventDefault(); if(!member)return;
@@ -1105,6 +1134,9 @@ function MemberProfile({clan,user,data}){
   const readinessScore=assignedCount ? Math.round(((goingCount/assignedCount)*70)+((readyCount/assignedCount)*30)) : 0;
   const readinessLabel=assignedCount===0?'NO HISTORY':readinessScore>=80?'READY':readinessScore>=60?'WATCH':'LOW';
   const readinessTone=readinessScore>=80?'green':readinessScore>=60?'yellow':'red';
+  const trainingCompleted=trainingRecords.filter(r=>r.result==='COMPLETED').length;
+  const trainingPassed=trainingRecords.filter(r=>r.result==='PASSED').length;
+  const trainingFocus=trainingRecords.filter(r=>r.result==='FOCUS').length;
   return <>
     <PageHead eyebrow="PERSONNEL COMMAND" title={member.callsign||'MEMBER PROFILE'} subtitle="IDENTITY · READINESS · OPERATION HISTORY" actions={<button className="btn" onClick={()=>navigate('/members')}><ArrowLeft size={15}/> BACK TO MEMBERS</button>}/>
     <div className="grid g3">
@@ -1118,6 +1150,7 @@ function MemberProfile({clan,user,data}){
       <div className="card stat"><div className="k">GOING</div><div className="v">{goingCount}</div><div className="s">RECENT ATTENDANCE</div></div>
       <div className="card stat"><div className="k">READY</div><div className="v">{readyCount}</div><div className="s">MARKED READY</div></div>
       <div className="card stat"><div className="k">DECLINED</div><div className="v">{declinedCount}</div><div className="s">RECENT ATTENDANCE</div></div>
+      <div className="card stat"><div className="k">TRAINING</div><div className="v">{trainingRecords.length}</div><div className="s">{trainingPassed} PASSED · {trainingFocus} FOCUS</div></div>
     </div>
     <div className="grid g2">
       <div className="card form">
@@ -1144,6 +1177,20 @@ function MemberProfile({clan,user,data}){
     <div className="card section">
       <div className="section-head"><div><h3>Operation history</h3><small>RECENT ROSTER ASSIGNMENTS</small></div><span>{assignedCount?`${assignedCount} RECORDS`:'NO ASSIGNMENTS'}</span></div>
       {!assignedCount?<div className="empty-state"><h3>No operation history</h3><p className="muted">This member has not appeared in the relational operation roster yet.</p></div>:<div className="table-scroll"><table className="table"><thead><tr><th>OPERATION</th><th>MAP</th><th>SQUAD</th><th>ATTENDANCE</th><th>READY</th></tr></thead><tbody>{operationHistory.map((x,i)=><tr key={`${x.operations?.number||'op'}-${i}`}><td><b>OP {String(x.operations?.number||'—').padStart(3,'0')}</b><small>{x.operations?.name||'Untitled operation'}</small></td><td>{x.operations?.map_name||'—'}</td><td>{x.squads?.name||'UNASSIGNED'}</td><td><Tag tone={x.attendance==='going'?'green':x.attendance==='declined'?'red':'yellow'}>{String(x.attendance||'maybe').toUpperCase()}</Tag></td><td>{x.ready?<Tag tone="green">READY</Tag>:<Tag>NOT READY</Tag>}</td></tr>)}</tbody></table></div>}
+    </div>
+    <div className="grid g2 section">
+      <div className="card">
+        <div className="section-head"><div><h3>Training history</h3><small>PERSONNEL DEVELOPMENT · LAST 12 RECORDS</small></div><span>{trainingRecords.length?`${trainingRecords.length} RECORDS`:'NO RECORDS'}</span></div>
+        {!trainingRecords.length?<div className="empty-state"><h3>No training records</h3><p className="muted">Add qualifications, training sessions or areas of focus for this member.</p></div>:<div className="table-scroll"><table className="table"><thead><tr><th>DATE</th><th>CATEGORY</th><th>SESSION</th><th>RESULT</th><th>SCORE</th>{admin&&<th></th>}</tr></thead><tbody>{trainingRecords.map(r=><tr key={r.id}><td>{r.training_date}</td><td>{r.category}</td><td><b>{r.session}</b><small>{r.notes||'—'}</small></td><td><Tag tone={r.result==='PASSED'?'green':r.result==='FOCUS'?'yellow':'green'}>{r.result}</Tag></td><td>{r.score==null?'—':`${r.score}%`}</td>{admin&&<td><button className="iconbtn" onClick={()=>deleteTrainingRecord(r.id)} disabled={trainingBusy}><X size={14}/></button></td>}</tr>)}</tbody></table></div>}
+      </div>
+      {admin&&<div className="card form"><div className="eyebrow">PERSONNEL DEVELOPMENT</div><h2>ADD TRAINING RECORD</h2><p className="subtitle">Record a qualification, drill or training focus for this member.</p><form className="stack" onSubmit={addTrainingRecord}>
+        <div className="form-grid"><label className="field"><span>DATE</span><input type="date" value={trainingDraft.training_date} onChange={e=>setTrainingDraft(d=>({...d,training_date:e.target.value}))}/></label><label className="field"><span>CATEGORY</span><input value={trainingDraft.category} onChange={e=>setTrainingDraft(d=>({...d,category:e.target.value}))} placeholder="INFANTRY / ARMOR / COMMAND"/></label></div>
+        <label className="field"><span>SESSION / QUALIFICATION</span><input required value={trainingDraft.session} onChange={e=>setTrainingDraft(d=>({...d,session:e.target.value}))} placeholder="AT certification / SL drill / Recon"/></label>
+        <div className="form-grid"><label className="field"><span>RESULT</span><select value={trainingDraft.result} onChange={e=>setTrainingDraft(d=>({...d,result:e.target.value}))}><option>COMPLETED</option><option>PASSED</option><option>FOCUS</option></select></label><label className="field"><span>SCORE %</span><input type="number" min="0" max="100" value={trainingDraft.score} onChange={e=>setTrainingDraft(d=>({...d,score:e.target.value}))} placeholder="Optional"/></label></div>
+        <label className="field"><span>NOTES</span><textarea value={trainingDraft.notes} onChange={e=>setTrainingDraft(d=>({...d,notes:e.target.value}))} placeholder="Observed strengths, next focus, qualification details…"/></label>
+        {message&&<div className="success">{message}</div>}{error&&<div className="error">{error}</div>}
+        <button className="btn primary" disabled={trainingBusy}>{trainingBusy?'SAVING…':'ADD TRAINING RECORD'} <Save size={15}/></button>
+      </form></div>}
     </div>
   </>
 }
