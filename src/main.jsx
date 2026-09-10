@@ -1137,6 +1137,18 @@ function MemberProfile({clan,user,data}){
   const trainingCompleted=trainingRecords.filter(r=>r.result==='COMPLETED').length;
   const trainingPassed=trainingRecords.filter(r=>r.result==='PASSED').length;
   const trainingFocus=trainingRecords.filter(r=>r.result==='FOCUS').length;
+  const attendanceResponded=operationHistory.filter(x=>['going','declined','maybe'].includes(x.attendance));
+  const attendanceRate=assignedCount?Math.round((goingCount/assignedCount)*100):0;
+  const responseRate=assignedCount?Math.round((attendanceResponded.length/assignedCount)*100):0;
+  const noShowCount=operationHistory.filter(x=>x.attendance==='going' && !x.ready).length;
+  const recentHalf=Math.max(1,Math.ceil(assignedCount/2));
+  const recentHistory=operationHistory.slice(0,recentHalf);
+  const recentGoing=recentHistory.filter(x=>x.attendance==='going').length;
+  const previousHistory=operationHistory.slice(recentHalf);
+  const previousGoing=previousHistory.filter(x=>x.attendance==='going').length;
+  const recentRate=recentHistory.length?Math.round((recentGoing/recentHistory.length)*100):0;
+  const previousRate=previousHistory.length?Math.round((previousGoing/previousHistory.length)*100):recentRate;
+  const attendanceTrend=recentRate>previousRate? 'UP':recentRate<previousRate?'DOWN':'STABLE';
   return <>
     <PageHead eyebrow="PERSONNEL COMMAND" title={member.callsign||'MEMBER PROFILE'} subtitle="IDENTITY · READINESS · OPERATION HISTORY" actions={<button className="btn" onClick={()=>navigate('/members')}><ArrowLeft size={15}/> BACK TO MEMBERS</button>}/>
     <div className="grid g3">
@@ -1172,6 +1184,15 @@ function MemberProfile({clan,user,data}){
         <textarea className="field" style={{minHeight:180}} value={commandNotes} onChange={e=>setCommandNotes(e.target.value)} placeholder="Attendance pattern, preferred assignment, leadership notes, training focus…" disabled={!admin}/>
         {admin&&<div className="callout"><Shield size={15}/> Only Command can edit command notes. Other members do not see this field.</div>}
         {!admin&&<div className="callout"><Shield size={15}/> Command notes are managed by the Commander / CO.</div>}
+      </div>
+    </div>
+    <div className="card section">
+      <div className="section-head"><div><h3>Attendance analytics</h3><small>RECENT OPERATIONAL RELIABILITY</small></div><span>{assignedCount?`${assignedCount} OPS`:'NO HISTORY'}</span></div>
+      <div className="grid g4" style={{padding:'12px 15px 4px'}}>
+        <div className="card stat"><div className="k">ATTENDANCE</div><div className="v">{assignedCount?`${attendanceRate}%`:'—'}</div><div className="s">GOING / ASSIGNED</div></div>
+        <div className="card stat"><div className="k">RESPONSE RATE</div><div className="v">{assignedCount?`${responseRate}%`:'—'}</div><div className="s">RESPONDED TO OPS</div></div>
+        <div className="card stat"><div className="k">NO-READINESS</div><div className="v">{noShowCount}</div><div className="s">GOING BUT NOT READY</div></div>
+        <div className="card stat"><div className="k">TREND</div><div className="v"><Tag tone={attendanceTrend==='UP'?'green':attendanceTrend==='DOWN'?'red':'yellow'}>{attendanceTrend}</Tag></div><div className="s">RECENT VS PRIOR OPS</div></div>
       </div>
     </div>
     <div className="card section">
