@@ -60,3 +60,4 @@
 @media(max-width:760px){.analytics-strip{padding:8px 12px 2px}}
 .analytics-cell{min-width:120px}.analytics-cell small{display:block;color:#777d72;font-size:7px;margin-top:4px}.mini-progress{height:5px;width:100%;background:#0f110e;border:1px solid #2e312a;margin-top:5px}.mini-progress span{display:block;height:100%;background:var(--green)}
 .squad-analytics-card{overflow:hidden}.squad-performance-table td small{display:block;color:#777d72;font-size:7px;margin-top:3px}.squad-score{min-width:130px}.squad-score b{font-size:12px}
+.squad-link{display:inline-flex;flex-direction:column;gap:2px}.squad-link small{font-size:7px;letter-spacing:.08em;color:var(--green)}.squad-hero-grid .text-v{font-size:18px}.squad-member-table td,.squad-history-table td{vertical-align:middle}.squad-member-table small,.squad-history-table small{display:block;color:#777d72;font-size:7px;margin-top:4px}.squad-score{min-width:110px}
