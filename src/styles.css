@@ -52,3 +52,6 @@
 .auth-tabs{margin:20px 0}
 .profile-readiness{display:flex;align-items:center;gap:14px;padding:12px 15px;border-top:1px solid #292c25;border-bottom:1px solid #292c25;background:#171a15}.profile-readiness>div:first-child{min-width:190px}.profile-readiness b{display:block;font-size:9px}.profile-readiness small{display:block;margin-top:4px;color:#747b70;font-size:7px;line-height:1.4}.profile-readiness-meter{flex:1;height:7px;background:#0f110e;border:1px solid #2e312a;overflow:hidden}.profile-readiness-meter i{display:block;height:100%;background:var(--green);min-width:0}
 @media(max-width:760px){.profile-readiness{align-items:flex-start;flex-wrap:wrap}.profile-readiness>div:first-child{min-width:0;width:100%}.profile-readiness-meter{width:100%;flex-basis:100%}}
+.training-form .field textarea{min-height:120px}
+.table-scroll{overflow-x:auto}
+.empty-state{padding:22px 15px}.empty-state h3{margin:0 0 6px;font-size:12px}.empty-state p{font-size:9px;line-height:1.5}
