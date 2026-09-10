@@ -974,7 +974,7 @@ function MembershipWaiting({clan,user}){
 function MembershipInactive({clan}){return <div className="splash"><Shield size={36}/><div><div className="eyebrow">ACCESS SUSPENDED</div><h2>MEMBERSHIP INACTIVE</h2><small>{clan?.name||'Clan'}</small><p className="muted">Your clan membership is currently inactive. Contact your Commander or CO if this is unexpected.</p><button className="btn" onClick={async()=>{if(supabase) await supabase.auth.signOut(); else window.location.reload();}}><LogOut size={15}/> SIGN OUT</button></div></div>}
 
 function Members({clan,user,data,setClan}){
-  const [members,setMembers]=useState([]); const [loading,setLoading]=useState(true); const [error,setError]=useState(''); const [copied,setCopied]=useState(false); const [query,setQuery]=useState(''); const [statusFilter,setStatusFilter]=useState('active'); const [busyId,setBusyId]=useState(''); const [analytics,setAnalytics]=useState({}); const [analyticsLoading,setAnalyticsLoading]=useState(false);
+  const [members,setMembers]=useState([]); const [loading,setLoading]=useState(true); const [error,setError]=useState(''); const [copied,setCopied]=useState(false); const [query,setQuery]=useState(''); const [statusFilter,setStatusFilter]=useState('active'); const [busyId,setBusyId]=useState(''); const [analytics,setAnalytics]=useState({}); const [analyticsLoading,setAnalyticsLoading]=useState(false); const [squadAnalytics,setSquadAnalytics]=useState([]); const [squadAnalyticsLoading,setSquadAnalyticsLoading]=useState(false);
   const load=async()=>{
     if(!supabase||!clan?.id){setMembers((data.players||[]).map(p=>({id:p.id,callsign:p.name,role:p.role,user_id:p.memberUserId,active:true,primary_role:p.role})));setLoading(false);return;}
     setLoading(true); const {data:rows,error:e}=await supabase.from('clan_members').select('id,user_id,callsign,primary_role,role,active,membership_status,created_at').eq('clan_id',clan.id).order('created_at',{ascending:true}); setMembers(rows||[]); setError(e?.message||''); setLoading(false);
@@ -1029,6 +1029,49 @@ function Members({clan,user,data,setClan}){
     loadAnalytics();
     return()=>{cancelled=true};
   },[clan?.id]);
+  useEffect(()=>{
+    let cancelled=false;
+    async function loadSquadAnalytics(){
+      if(!supabase||!clan?.id){setSquadAnalytics([]);return;}
+      setSquadAnalyticsLoading(true);
+      try{
+        const {data:rows,error:e}=await supabase.from('roster_assignments').select('user_id,attendance,ready,created_at,squads(name,squad_lead_id),operations(status,scheduled_at)').eq('operations.clan_id',clan.id).limit(5000);
+        if(e) throw e;
+        const map={};
+        for(const r of (rows||[])){
+          const squadName=r.squads?.name||'UNASSIGNED';
+          const key=squadName.toUpperCase();
+          const a=map[key]||(map[key]={name:squadName,leadId:r.squads?.squad_lead_id||'',assignments:0,going:0,ready:0,responded:0,recent:[]});
+          a.assignments++;
+          if(r.attendance==='going') a.going++;
+          if(r.ready) a.ready++;
+          if(['going','maybe','declined'].includes(r.attendance)) a.responded++;
+          const ts=r.operations?.scheduled_at?new Date(r.operations.scheduled_at).getTime():new Date(r.created_at||0).getTime();
+          a.recent.push({ts,attendance:r.attendance,ready:!!r.ready});
+        }
+        const leadNames=new Map((members||[]).map(m=>[m.user_id,m.callsign||'Unnamed']));
+        const out=Object.values(map).map(a=>{
+          a.recent.sort((x,y)=>y.ts-x.ts);
+          const half=Math.max(1,Math.ceil(a.recent.length/2));
+          const recent=a.recent.slice(0,half), older=a.recent.slice(half);
+          a.attendancePct=a.assignments?Math.round(a.going/a.assignments*100):0;
+          a.responsePct=a.assignments?Math.round(a.responded/a.assignments*100):0;
+          a.readinessPct=a.assignments?Math.round(((a.going/a.assignments)*70)+((a.ready/a.assignments)*30)):0;
+          const rp=recent.length?Math.round(recent.filter(x=>x.attendance==='going').length/recent.length*100):0;
+          const op=older.length?Math.round(older.filter(x=>x.attendance==='going').length/older.length*100):rp;
+          a.trend=rp>op+10?'UP':rp<op-10?'DOWN':'STABLE';
+          a.scoreLabel=a.assignments===0?'NO DATA':a.readinessPct>=80?'READY':a.readinessPct>=60?'WATCH':'LOW';
+          a.lead=leadNames.get(a.leadId)||'NO SL';
+          a.members=new Set();
+          return a;
+        }).sort((a,b)=>b.readinessPct-a.readinessPct || b.assignments-a.assignments);
+        if(!cancelled)setSquadAnalytics(out);
+      }catch(e){ if(!cancelled)setError(e.message||'Could not load squad analytics.'); }
+      finally{if(!cancelled)setSquadAnalyticsLoading(false);}
+    }
+    loadSquadAnalytics();
+    return()=>{cancelled=true};
+  },[clan?.id,members]);
   const admin=canManageMembers(clan);
   const filtered=members.filter(m=>{
     const text=`${m.callsign||''} ${m.primary_role||''} ${m.role||''}`.toLowerCase();
@@ -1063,6 +1106,10 @@ function Members({clan,user,data,setClan}){
       {admin?<div className="card"><div className="section-head"><h3>Clan invite</h3><span>COMMAND ONLY</span></div><div className="invite-code">{clan?.inviteCode||'—'}</div><div className="button-row"><button className="btn primary" onClick={copyInvite} disabled={!clan?.inviteCode}><Copy size={14}/> {copied?'COPIED':'COPY INVITE CODE'}</button><button className="btn" onClick={rotateInvite} disabled={busyId==='invite'}>{busyId==='invite'?'ROTATING…':'ROTATE CODE'}</button></div><p className="member-help">Rotating invalidates the old code. Share the new code only with trusted clan members.</p></div>:<div className="card"><div className="section-head"><h3>Invite access</h3><span>LOCKED</span></div><p className="subtitle">Ask your commander for the current clan invite code.</p><Tag tone="yellow">COMMAND ONLY</Tag></div>}
     </div>
     {error&&<div className="error section">{error}</div>}
+    <div className="card section squad-analytics-card">
+      <div className="section-head"><div><h3>Squad performance</h3><small>HISTORICAL ROSTER RELIABILITY · ALL OPS</small></div><span>{squadAnalyticsLoading?'CALCULATING…':squadAnalytics.length?`${squadAnalytics.length} SQUADS`:'NO SQUAD HISTORY'}</span></div>
+      {!squadAnalytics.length?<div className="empty-state"><h3>No squad history</h3><p className="muted">Squad metrics appear after players are assigned to relational operation squads.</p></div>:<div className="table-scroll"><table className="table squad-performance-table"><thead><tr><th>SQUAD</th><th>SL</th><th>OPS</th><th>READINESS</th><th>ATTENDANCE</th><th>TREND</th><th>STATUS</th></tr></thead><tbody>{squadAnalytics.map(a=>{const tone=a.scoreLabel==='READY'?'green':a.scoreLabel==='WATCH'?'yellow':a.scoreLabel==='LOW'?'red':''; return <tr key={a.name}><td><b>{a.name.toUpperCase()}</b></td><td>{a.lead}</td><td>{a.assignments}<small>{a.responsePct}% responded</small></td><td><div className="analytics-cell squad-score"><b>{a.readinessPct}%</b><div className="mini-progress"><span style={{width:`${a.readinessPct||0}%`}}/></div></div></td><td><b>{a.attendancePct}%</b><small>{a.going} going</small></td><td><Tag tone={a.trend==='UP'?'green':a.trend==='DOWN'?'red':'yellow'}>{a.trend}</Tag></td><td><Tag tone={tone}>{a.scoreLabel}</Tag></td></tr>})}</tbody></table></div>}
+    </div>
     <div className="card section">
       <div className="toolbar member-toolbar"><div className="search"><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search callsign or role…"/></div><div className="member-filters"><button className={statusFilter==='active'?'active':''} onClick={()=>setStatusFilter('active')}>ACTIVE</button><button className={statusFilter==='pending'?'active':''} onClick={()=>setStatusFilter('pending')}>PENDING</button><button className={statusFilter==='inactive'?'active':''} onClick={()=>setStatusFilter('inactive')}>INACTIVE</button><button className={statusFilter==='all'?'active':''} onClick={()=>setStatusFilter('all')}>ALL</button></div></div>
       <div className="section-head"><div><h3>Member roster</h3><small>{loading?'LOADING…':`${filtered.length} MATCHING MEMBERS`}</small></div><span>LIVE FROM SUPABASE</span></div>
