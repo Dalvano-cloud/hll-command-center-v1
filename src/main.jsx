@@ -1073,7 +1073,22 @@ function Members({clan,user,data,setClan}){
     return()=>{cancelled=true};
   },[clan?.id,members]);
   const admin=canManageMembers(clan);
+  const readinessOp=(data.ops||[]).find(o=>o.status==='active')||((data.ops||[]).filter(o=>o.status==='draft').sort((a,b)=>`${a.date||''} ${a.time||''}`.localeCompare(`${b.date||''} ${b.time||''}`))[0])||(data.ops||[])[0];
+  const readinessPlayers=readinessOp?members.map(m=>{
+    const attendance=readinessOp.attendanceByPlayer?.[m.user_id]||'maybe';
+    const assignedSquad=(readinessOp.squads||[]).find(s=>(s.playerIds||[]).includes(m.user_id))?.name||'UNASSIGNED';
+    const isGoing=attendance==='going';
+    const ready=(data.players||[]).find(p=>p.memberUserId===m.user_id)?.status==='ready';
+    const issue=!isGoing?'NOT CONFIRMED':isGoing&&!ready?'NOT READY':'READY';
+    return {id:m.id,userId:m.user_id,callsign:m.callsign||'Unnamed player',squad:assignedSquad,attendance,ready,isGoing,issue};
+  }).filter(x=>x.issue!=='READY').sort((a,b)=>{const rank={UNCONFIRMED:0,'NOT CONFIRMED':0,'NOT READY':1};return (rank[a.issue]??2)-(rank[b.issue]??2)||a.callsign.localeCompare(b.callsign)}):[];
+  const readinessSummary=readinessOp?{total:members.length,going:members.filter(m=>readinessOp.attendanceByPlayer?.[m.user_id]==='going').length,ready:readinessPlayers.filter(x=>x.ready&&x.isGoing).length,attention:readinessPlayers.length}:null;
+  const readinessSquads=readinessOp?(readinessOp.squads||[]).map(s=>{
+    const ids=s.playerIds||[]; const list=members.filter(m=>ids.includes(m.user_id)); const going=list.filter(m=>readinessOp.attendanceByPlayer?.[m.user_id]==='going').length; const ready=list.filter(m=>readinessOp.attendanceByPlayer?.[m.user_id]==='going' && (data.players||[]).find(p=>p.memberUserId===m.user_id)?.status==='ready').length; const pct=going?Math.round(ready/going*100):0;
+    return {name:s.name,lead:(members.find(m=>m.user_id===s.lead)?.callsign)||'NO SL',members:list.length,going,ready,pct,attention:list.filter(m=>readinessOp.attendanceByPlayer?.[m.user_id]!=='going'||!(data.players||[]).find(p=>p.memberUserId===m.user_id)?.status==='ready').length};
+  }).filter(s=>s.members).sort((a,b)=>a.pct-b.pct):[];
   const filtered=members.filter(m=>{
+
     const text=`${m.callsign||''} ${m.primary_role||''} ${m.role||''}`.toLowerCase();
     const q=query.trim().toLowerCase();
     const matchesQuery=!q||text.includes(q);
@@ -1106,6 +1121,19 @@ function Members({clan,user,data,setClan}){
       {admin?<div className="card"><div className="section-head"><h3>Clan invite</h3><span>COMMAND ONLY</span></div><div className="invite-code">{clan?.inviteCode||'—'}</div><div className="button-row"><button className="btn primary" onClick={copyInvite} disabled={!clan?.inviteCode}><Copy size={14}/> {copied?'COPIED':'COPY INVITE CODE'}</button><button className="btn" onClick={rotateInvite} disabled={busyId==='invite'}>{busyId==='invite'?'ROTATING…':'ROTATE CODE'}</button></div><p className="member-help">Rotating invalidates the old code. Share the new code only with trusted clan members.</p></div>:<div className="card"><div className="section-head"><h3>Invite access</h3><span>LOCKED</span></div><p className="subtitle">Ask your commander for the current clan invite code.</p><Tag tone="yellow">COMMAND ONLY</Tag></div>}
     </div>
     {error&&<div className="error section">{error}</div>}
+    {admin&&readinessOp&&<div className="card section command-readiness-card">
+      <div className="section-head"><div><h3>Command readiness</h3><small>PRE-OP ATTENTION · {readinessOp.name?.toUpperCase()||'NEXT OP'} · {readinessOp.map||'MAP TBD'}</small></div><div className="button-row"><Tag tone={readinessSummary.attention===0?'green':'yellow'}>{readinessSummary.attention===0?'ALL CLEAR':`${readinessSummary.attention} NEED ATTENTION`}</Tag><Link className="btn mini-action primary" to={`/operations/${readinessOp.id}`}>OPEN OP</Link></div></div>
+      <div className="readiness-summary-grid">
+        <div className="readiness-summary"><div className="k">CONFIRMED</div><div className="v">{readinessSummary.going}/{readinessSummary.total}</div><div className="s">ATTENDANCE</div></div>
+        <div className="readiness-summary"><div className="k">READY</div><div className="v">{readinessSummary.ready}/{readinessSummary.going}</div><div className="s">OF CONFIRMED</div></div>
+        <div className="readiness-summary"><div className="k">SQUADS</div><div className="v">{readinessSquads.filter(s=>s.going>0&&s.pct>=80).length}/{readinessSquads.filter(s=>s.going>0).length||0}</div><div className="s">AT 80%+ READY</div></div>
+      </div>
+      <div className="grid g2 command-readiness-grid">
+        <div><div className="subpanel-head"><b>Squad readiness</b><span>LIVE</span></div>{readinessSquads.length?<div className="readiness-squad-list">{readinessSquads.map(s=><Link key={s.name} className="readiness-squad-row" to={`/squads/${encodeURIComponent(s.name)}`}><div><b>{s.name.toUpperCase()}</b><small>{s.lead} · {s.going}/{s.members} CONFIRMED</small></div><div className="readiness-row-score"><strong>{s.going?s.pct:0}%</strong><div className="mini-progress"><span style={{width:`${s.going?s.pct:0}%`}}/></div></div></Link>)}</div>:<p className="muted">No squads assigned for this operation.</p>}</div>
+        <div><div className="subpanel-head"><b>Attention queue</b><span>{readinessPlayers.length} PLAYERS</span></div>{readinessPlayers.length?<div className="attention-list">{readinessPlayers.slice(0,8).map(p=><Link key={p.id} className="attention-row" to={`/members/${p.id}`}><div><b>{p.callsign.toUpperCase()}</b><small>{p.squad} · {p.issue}</small></div><Tag tone={p.issue==='NOT READY'?'red':'yellow'}>{p.issue}</Tag></Link>)}</div>:<div className="empty-inline"><Tag tone="green">ALL PLAYERS CLEAR</Tag><p>No attendance or readiness exceptions detected for this operation.</p></div>}{readinessPlayers.length>8&&<small className="muted">+ {readinessPlayers.length-8} more in member roster</small>}</div>
+      </div>
+    </div>}
+    {readinessOp&&!admin&&<div className="card section command-readiness-card player-readiness-banner"><div className="section-head"><div><h3>Operation readiness</h3><small>{readinessOp.name?.toUpperCase()||'NEXT OP'}</small></div><Tag tone="yellow">COMMAND VIEW RESTRICTED</Tag></div><p className="muted">Your attendance and readiness are managed in the operation workspace.</p><Link className="btn" to={`/operations/${readinessOp.id}`}>OPEN OPERATION</Link></div>}
     <div className="card section squad-analytics-card">
       <div className="section-head"><div><h3>Squad performance</h3><small>HISTORICAL ROSTER RELIABILITY · ALL OPS</small></div><span>{squadAnalyticsLoading?'CALCULATING…':squadAnalytics.length?`${squadAnalytics.length} SQUADS`:'NO SQUAD HISTORY'}</span></div>
       {!squadAnalytics.length?<div className="empty-state"><h3>No squad history</h3><p className="muted">Squad metrics appear after players are assigned to relational operation squads.</p></div>:<div className="table-scroll"><table className="table squad-performance-table"><thead><tr><th>SQUAD</th><th>SL</th><th>OPS</th><th>READINESS</th><th>ATTENDANCE</th><th>TREND</th><th>STATUS</th></tr></thead><tbody>{squadAnalytics.map(a=>{const tone=a.scoreLabel==='READY'?'green':a.scoreLabel==='WATCH'?'yellow':a.scoreLabel==='LOW'?'red':''; return <tr key={a.name}><td><Link className="member-link squad-link" to={`/squads/${encodeURIComponent(a.name)}`}><b>{a.name.toUpperCase()}</b><small>OPEN SQUAD</small></Link></td><td>{a.lead}</td><td>{a.assignments}<small>{a.responsePct}% responded</small></td><td><div className="analytics-cell squad-score"><b>{a.readinessPct}%</b><div className="mini-progress"><span style={{width:`${a.readinessPct||0}%`}}/></div></div></td><td><b>{a.attendancePct}%</b><small>{a.going} going</small></td><td><Tag tone={a.trend==='UP'?'green':a.trend==='DOWN'?'red':'yellow'}>{a.trend}</Tag></td><td><Tag tone={tone}>{a.scoreLabel}</Tag></td></tr>})}</tbody></table></div>}
