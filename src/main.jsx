@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, NavLink, Route, Routes, useLocation, useNavigate, useParams, Link } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
@@ -214,7 +214,6 @@ function useClanStore(user){
   const [pendingMembership,setPendingMembership]=useState(false);
   const [inactiveMembership,setInactiveMembership]=useState(false);
   const [hydrated,setHydrated]=useState(false);
-  const lastRemoteDataRef=useRef('');
 
   useEffect(()=>{
     let cancelled=false;
@@ -253,15 +252,8 @@ function useClanStore(user){
 
   useEffect(()=>{
     if(!clan || loading || !hydrated) return;
-    const serialized=JSON.stringify(data);
-    // A realtime UPDATE can be our own persistence write. Consume that snapshot
-    // once so it does not immediately write the same state back again.
-    if(lastRemoteDataRef.current===serialized){
-      lastRemoteDataRef.current='';
-      return;
-    }
     const timer=setTimeout(async()=>{
-      if(!supabase){localStorage.setItem('hll-command-data',serialized);return;}
+      if(!supabase){localStorage.setItem('hll-command-data',JSON.stringify(data));return;}
       const canWriteWorkspace=['commander','co'].includes(clan.role);
       if(canWriteWorkspace){
         const {error:upsertError}=await supabase.from('clan_app_state').upsert({clan_id:clan.id,data,updated_at:new Date().toISOString()},{onConflict:'clan_id'});
@@ -277,15 +269,10 @@ function useClanStore(user){
   useEffect(()=>{
     if(!supabase || !clan?.id || !['commander','co'].includes(clan.role)) return;
     const channel=supabase.channel(`clan-state-${clan.id}`)
-      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'clan_app_state',filter:`clan_id=eq.${clan.id}`},payload=>{
-        if(!payload.new?.data) return;
-        const next=normalizeData(payload.new.data);
-        lastRemoteDataRef.current=JSON.stringify(next);
-        setData(next);
-      })
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'clan_app_state',filter:`clan_id=eq.${clan.id}`},payload=>{if(payload.new?.data) setData(normalizeData(payload.new.data));})
       .subscribe();
     return ()=>{supabase.removeChannel(channel)};
-  },[clan?.id,clan?.role]);
+  },[clan?.id]);
 
   async function createClan(name,tag){
     if(!supabase) {setClan({id:'demo-clan',name,tag,inviteCode:'demo1234',role:'commander',callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'});setNeedsOnboarding(false);return;}
@@ -396,7 +383,7 @@ function Shell({session,store}){
   return <div className="app"><aside className={sidebar?'sidebar open':'sidebar'}><div className="brand">HLL // COMMAND<small>{clan?.tag ? `${clan.tag} · ` : ''}CLAN OPERATIONS HUB</small></div><nav>{[
     ['/', 'Dashboard', Home],['/command-room','Command Room',Shield],['/my-operation','My Operation',Radio],['/operations','Operations',Swords],['/calendar','Calendar',CalendarDays],['/roster','Roster',Users],['/members','Members',Users],['/strategy','Strategies',Target],['/maps','Stage Maps',MapIcon],['/briefings','Briefings',FileText],['/activity','Command Feed',Activity],['/wiki','Clan Wiki',BookOpen],['/aar','AAR',ClipboardCheck],...(canCommand(clan)?[['/settings','Clan Settings',Settings]]:[])
   ].map(([to,label,Icon])=><NavLink key={to} to={to} onClick={()=>setSidebar(false)} className={({isActive})=>isActive?'navitem active':'navitem'}><Icon size={17}/><span>{label}</span></NavLink>)}</nav><div className="side-bottom"><div className="online"><i/>SYSTEM ONLINE</div><div>{clan?.name || 'HLL Demo Clan'}</div><div className="muted">{supabase ? 'SUPABASE CONNECTED' : 'LOCAL DEMO MODE'}</div></div></aside><main><header className="topbar"><button className="mobile-menu" onClick={()=>setSidebar(v=>!v)}><Menu/></button><TopCrumb/><div className="top-right"><button className="iconbtn" onClick={()=>navigate('/activity')} title="Command Feed"><Bell size={16}/>{activityCount>0&&<em className="activity-badge">{activityCount>99?'99+':activityCount}</em>}</button><button className="profile profile-clickable" onClick={()=>navigate('/profile')} title="Edit profile"><div className="avatar">{displayName.slice(0,1).toUpperCase()}</div><div><b>{displayName}</b><span>{(clan?.role || DEMO_USER.role).toUpperCase()}</span></div></button><button className="iconbtn" onClick={logout} title="Log out"><LogOut size={15}/></button></div></header><div className="content"><Routes>
-    <Route path="/reset-password" element={<ResetPassword/>}/><Route path="/" element={<Dashboard data={data} clan={clan}/>}/><Route path="/my-operation" element={<MyOperation data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/operations" element={<Operations data={data} setData={setData} clan={clan}/>}/><Route path="/operations/:id" element={<OperationDetail data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/calendar" element={<Calendar data={data} setData={setData}/>}/><Route path="/roster" element={<Roster data={data} setData={setData}/>}/><Route path="/members" element={<Members clan={clan} user={user} data={data} setClan={store.setClan}/>}/><Route path="/members/:memberId" element={<MemberProfile clan={clan} user={user} data={data}/>}/><Route path="/squads/:squadName" element={<SquadDeepDive clan={clan} user={user} data={data}/>}/><Route path="/settings" element={canCommand(clan)?<ClanSettings clan={clan} setClan={store.setClan}/>:<PermissionCard clan={clan} title="CLAN SETTINGS CONTROLLED" text="Only Commander and CO roles can edit clan settings."/>}/><Route path="/strategy" element={canCommand(clan)?<Strategy data={data} setData={setData}/>:<PermissionCard clan={clan} title="STRATEGY CONTROLLED" text="Commander and CO roles can build and publish clan strategy."/>}/><Route path="/maps" element={canCommand(clan)?<Maps data={data} setData={setData}/>:<PermissionCard clan={clan} title="STAGE MAPS CONTROLLED" text="Command roles manage the tactical map workspace."/>}/><Route path="/briefings" element={canCommand(clan)?<Briefings data={data} setData={setData}/>:<PermissionCard clan={clan} title="BRIEFINGS CONTROLLED" text="Command roles publish player briefings."/>}/><Route path="/activity" element={<ActivityFeed clan={clan} user={user} data={data}/>}/><Route path="/command-room" element={<CommandRoom clan={clan} user={user} data={data}/>}/><Route path="/wiki" element={<Wiki data={data} setData={setData}/>}/><Route path="/aar" element={canCommand(clan)?<AAR data={data} setData={setData}/>:<PermissionCard clan={clan} title="AAR CONTROLLED" text="Command roles own the official after-action review."/>}/><Route path="/profile" element={<Profile user={user} clan={clan} store={store}/>}/>
+    <Route path="/reset-password" element={<ResetPassword/>}/><Route path="/" element={<Dashboard data={data} clan={clan}/>}/><Route path="/my-operation" element={<MyOperation data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/operations" element={<Operations data={data} setData={setData} clan={clan}/>}/><Route path="/operations/:id" element={<OperationDetail data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/calendar" element={<Calendar data={data} setData={setData}/>}/><Route path="/roster" element={<Roster data={data} setData={setData}/>}/><Route path="/members" element={<Members clan={clan} user={user} data={data} setClan={store.setClan}/>}/><Route path="/settings" element={canCommand(clan)?<ClanSettings clan={clan} setClan={store.setClan}/>:<PermissionCard clan={clan} title="CLAN SETTINGS CONTROLLED" text="Only Commander and CO roles can edit clan settings."/>}/><Route path="/strategy" element={canCommand(clan)?<Strategy data={data} setData={setData}/>:<PermissionCard clan={clan} title="STRATEGY CONTROLLED" text="Commander and CO roles can build and publish clan strategy."/>}/><Route path="/maps" element={canCommand(clan)?<Maps data={data} setData={setData}/>:<PermissionCard clan={clan} title="STAGE MAPS CONTROLLED" text="Command roles manage the tactical map workspace."/>}/><Route path="/briefings" element={canCommand(clan)?<Briefings data={data} setData={setData}/>:<PermissionCard clan={clan} title="BRIEFINGS CONTROLLED" text="Command roles publish player briefings."/>}/><Route path="/activity" element={<ActivityFeed clan={clan} user={user} data={data}/>}/><Route path="/command-room" element={<CommandRoom clan={clan} user={user} data={data}/>}/><Route path="/wiki" element={<Wiki data={data} setData={setData}/>}/><Route path="/aar" element={canCommand(clan)?<AAR data={data} setData={setData}/>:<PermissionCard clan={clan} title="AAR CONTROLLED" text="Command roles own the official after-action review."/>}/><Route path="/profile" element={<Profile user={user} clan={clan} store={store}/>}/>
   </Routes></div></main></div>
 }
 
@@ -974,121 +961,14 @@ function MembershipWaiting({clan,user}){
 function MembershipInactive({clan}){return <div className="splash"><Shield size={36}/><div><div className="eyebrow">ACCESS SUSPENDED</div><h2>MEMBERSHIP INACTIVE</h2><small>{clan?.name||'Clan'}</small><p className="muted">Your clan membership is currently inactive. Contact your Commander or CO if this is unexpected.</p><button className="btn" onClick={async()=>{if(supabase) await supabase.auth.signOut(); else window.location.reload();}}><LogOut size={15}/> SIGN OUT</button></div></div>}
 
 function Members({clan,user,data,setClan}){
-  const [members,setMembers]=useState([]); const [loading,setLoading]=useState(true); const [error,setError]=useState(''); const [copied,setCopied]=useState(false); const [query,setQuery]=useState(''); const [statusFilter,setStatusFilter]=useState('active'); const [busyId,setBusyId]=useState(''); const [analytics,setAnalytics]=useState({}); const [analyticsLoading,setAnalyticsLoading]=useState(false); const [squadAnalytics,setSquadAnalytics]=useState([]); const [squadAnalyticsLoading,setSquadAnalyticsLoading]=useState(false);
+  const [members,setMembers]=useState([]); const [loading,setLoading]=useState(true); const [error,setError]=useState(''); const [copied,setCopied]=useState(false); const [query,setQuery]=useState(''); const [statusFilter,setStatusFilter]=useState('active'); const [busyId,setBusyId]=useState('');
   const load=async()=>{
     if(!supabase||!clan?.id){setMembers((data.players||[]).map(p=>({id:p.id,callsign:p.name,role:p.role,user_id:p.memberUserId,active:true,primary_role:p.role})));setLoading(false);return;}
     setLoading(true); const {data:rows,error:e}=await supabase.from('clan_members').select('id,user_id,callsign,primary_role,role,active,membership_status,created_at').eq('clan_id',clan.id).order('created_at',{ascending:true}); setMembers(rows||[]); setError(e?.message||''); setLoading(false);
   };
-  useEffect(()=>{
-    let cancelled=false;
-    (async()=>{
-      if(cancelled) return;
-      await load();
-    })();
-    return()=>{cancelled=true};
-  },[clan?.id]);
-
-  useEffect(()=>{
-    let cancelled=false;
-    async function loadAnalytics(){
-      if(!supabase||!clan?.id){setAnalytics({});return;}
-      setAnalyticsLoading(true);
-      try{
-        const {data:rows,error:e}=await supabase.from('roster_assignments').select('user_id,attendance,ready,operations(status,scheduled_at)').eq('operations.clan_id',clan.id).limit(5000);
-        if(e) throw e;
-        const now=Date.now();
-        const map={};
-        for(const r of (rows||[])){
-          const a=map[r.user_id]||(map[r.user_id]={ops:0,responded:0,going:0,ready:0,recent:[],noShow:0});
-          a.ops++;
-          if(['going','maybe','declined'].includes(r.attendance)) a.responded++;
-          if(r.attendance==='going') a.going++;
-          if(r.ready) a.ready++;
-          if(r.attendance==='going'&&!r.ready) a.noShow++;
-          const ts=r.operations?.scheduled_at?new Date(r.operations.scheduled_at).getTime():0;
-          a.recent.push({ts,attendance:r.attendance,ready:r.ready});
-        }
-        for(const uid of Object.keys(map)){
-          const a=map[uid];
-          a.recent.sort((x,y)=>y.ts-x.ts);
-          const half=Math.max(1,Math.ceil(a.recent.length/2));
-          const recent=a.recent.slice(0,half);
-          const older=a.recent.slice(half);
-          a.attendancePct=a.ops?Math.round(a.going/a.ops*100):0;
-          a.responsePct=a.ops?Math.round(a.responded/a.ops*100):0;
-          a.readinessPct=a.ops?Math.round(((a.going/a.ops)*70)+((a.ready/a.ops)*30)):0;
-          const rPct=recent.length?Math.round(recent.filter(x=>x.attendance==='going').length/recent.length*100):0;
-          const oPct=older.length?Math.round(older.filter(x=>x.attendance==='going').length/older.length*100):rPct;
-          a.trend=rPct>oPct+10?'UP':rPct<oPct-10?'DOWN':'STABLE';
-          a.scoreLabel=a.ops===0?'NO DATA':a.readinessPct>=80?'READY':a.readinessPct>=60?'WATCH':'LOW';
-        }
-        if(!cancelled)setAnalytics(map);
-      }catch(e){ if(!cancelled)setError(e.message||'Could not load personnel analytics.'); }
-      finally{if(!cancelled)setAnalyticsLoading(false);}
-    }
-    loadAnalytics();
-    return()=>{cancelled=true};
-  },[clan?.id]);
-  useEffect(()=>{
-    let cancelled=false;
-    async function loadSquadAnalytics(){
-      if(!supabase||!clan?.id){setSquadAnalytics([]);return;}
-      setSquadAnalyticsLoading(true);
-      try{
-        const {data:rows,error:e}=await supabase.from('roster_assignments').select('user_id,attendance,ready,created_at,squads(name,squad_lead_id),operations(status,scheduled_at)').eq('operations.clan_id',clan.id).limit(5000);
-        if(e) throw e;
-        const map={};
-        for(const r of (rows||[])){
-          const squadName=r.squads?.name||'UNASSIGNED';
-          const key=squadName.toUpperCase();
-          const a=map[key]||(map[key]={name:squadName,leadId:r.squads?.squad_lead_id||'',assignments:0,going:0,ready:0,responded:0,recent:[]});
-          a.assignments++;
-          if(r.attendance==='going') a.going++;
-          if(r.ready) a.ready++;
-          if(['going','maybe','declined'].includes(r.attendance)) a.responded++;
-          const ts=r.operations?.scheduled_at?new Date(r.operations.scheduled_at).getTime():new Date(r.created_at||0).getTime();
-          a.recent.push({ts,attendance:r.attendance,ready:!!r.ready});
-        }
-        const leadNames=new Map((members||[]).map(m=>[m.user_id,m.callsign||'Unnamed']));
-        const out=Object.values(map).map(a=>{
-          a.recent.sort((x,y)=>y.ts-x.ts);
-          const half=Math.max(1,Math.ceil(a.recent.length/2));
-          const recent=a.recent.slice(0,half), older=a.recent.slice(half);
-          a.attendancePct=a.assignments?Math.round(a.going/a.assignments*100):0;
-          a.responsePct=a.assignments?Math.round(a.responded/a.assignments*100):0;
-          a.readinessPct=a.assignments?Math.round(((a.going/a.assignments)*70)+((a.ready/a.assignments)*30)):0;
-          const rp=recent.length?Math.round(recent.filter(x=>x.attendance==='going').length/recent.length*100):0;
-          const op=older.length?Math.round(older.filter(x=>x.attendance==='going').length/older.length*100):rp;
-          a.trend=rp>op+10?'UP':rp<op-10?'DOWN':'STABLE';
-          a.scoreLabel=a.assignments===0?'NO DATA':a.readinessPct>=80?'READY':a.readinessPct>=60?'WATCH':'LOW';
-          a.lead=leadNames.get(a.leadId)||'NO SL';
-          a.members=new Set();
-          return a;
-        }).sort((a,b)=>b.readinessPct-a.readinessPct || b.assignments-a.assignments);
-        if(!cancelled)setSquadAnalytics(out);
-      }catch(e){ if(!cancelled)setError(e.message||'Could not load squad analytics.'); }
-      finally{if(!cancelled)setSquadAnalyticsLoading(false);}
-    }
-    loadSquadAnalytics();
-    return()=>{cancelled=true};
-  },[clan?.id,members]);
+  useEffect(()=>{let live=true;(async()=>{await load();})();return()=>{live=false}},[clan?.id,data.players.length]);
   const admin=canManageMembers(clan);
-  const readinessOp=(data.ops||[]).find(o=>o.status==='active')||((data.ops||[]).filter(o=>o.status==='draft').sort((a,b)=>`${a.date||''} ${a.time||''}`.localeCompare(`${b.date||''} ${b.time||''}`))[0])||(data.ops||[])[0];
-  const readinessPlayers=readinessOp?members.map(m=>{
-    const attendance=readinessOp.attendanceByPlayer?.[m.user_id]||'maybe';
-    const assignedSquad=(readinessOp.squads||[]).find(s=>(s.playerIds||[]).includes(m.user_id))?.name||'UNASSIGNED';
-    const isGoing=attendance==='going';
-    const ready=(data.players||[]).find(p=>p.memberUserId===m.user_id)?.status==='ready';
-    const issue=!isGoing?'NOT CONFIRMED':isGoing&&!ready?'NOT READY':'READY';
-    return {id:m.id,userId:m.user_id,callsign:m.callsign||'Unnamed player',squad:assignedSquad,attendance,ready,isGoing,issue};
-  }).filter(x=>x.issue!=='READY').sort((a,b)=>{const rank={UNCONFIRMED:0,'NOT CONFIRMED':0,'NOT READY':1};return (rank[a.issue]??2)-(rank[b.issue]??2)||a.callsign.localeCompare(b.callsign)}):[];
-  const readinessSummary=readinessOp?{total:members.length,going:members.filter(m=>readinessOp.attendanceByPlayer?.[m.user_id]==='going').length,ready:readinessPlayers.filter(x=>x.ready&&x.isGoing).length,attention:readinessPlayers.length}:null;
-  const readinessSquads=readinessOp?(readinessOp.squads||[]).map(s=>{
-    const ids=s.playerIds||[]; const list=members.filter(m=>ids.includes(m.user_id)); const going=list.filter(m=>readinessOp.attendanceByPlayer?.[m.user_id]==='going').length; const ready=list.filter(m=>readinessOp.attendanceByPlayer?.[m.user_id]==='going' && (data.players||[]).find(p=>p.memberUserId===m.user_id)?.status==='ready').length; const pct=going?Math.round(ready/going*100):0;
-    return {name:s.name,lead:(members.find(m=>m.user_id===s.lead)?.callsign)||'NO SL',members:list.length,going,ready,pct,attention:list.filter(m=>readinessOp.attendanceByPlayer?.[m.user_id]!=='going'||!(data.players||[]).find(p=>p.memberUserId===m.user_id)?.status==='ready').length};
-  }).filter(s=>s.members).sort((a,b)=>a.pct-b.pct):[];
   const filtered=members.filter(m=>{
-
     const text=`${m.callsign||''} ${m.primary_role||''} ${m.role||''}`.toLowerCase();
     const q=query.trim().toLowerCase();
     const matchesQuery=!q||text.includes(q);
@@ -1121,295 +1001,23 @@ function Members({clan,user,data,setClan}){
       {admin?<div className="card"><div className="section-head"><h3>Clan invite</h3><span>COMMAND ONLY</span></div><div className="invite-code">{clan?.inviteCode||'—'}</div><div className="button-row"><button className="btn primary" onClick={copyInvite} disabled={!clan?.inviteCode}><Copy size={14}/> {copied?'COPIED':'COPY INVITE CODE'}</button><button className="btn" onClick={rotateInvite} disabled={busyId==='invite'}>{busyId==='invite'?'ROTATING…':'ROTATE CODE'}</button></div><p className="member-help">Rotating invalidates the old code. Share the new code only with trusted clan members.</p></div>:<div className="card"><div className="section-head"><h3>Invite access</h3><span>LOCKED</span></div><p className="subtitle">Ask your commander for the current clan invite code.</p><Tag tone="yellow">COMMAND ONLY</Tag></div>}
     </div>
     {error&&<div className="error section">{error}</div>}
-    {admin&&readinessOp&&<div className="card section command-readiness-card">
-      <div className="section-head"><div><h3>Command readiness</h3><small>PRE-OP ATTENTION · {readinessOp.name?.toUpperCase()||'NEXT OP'} · {readinessOp.map||'MAP TBD'}</small></div><div className="button-row"><Tag tone={readinessSummary.attention===0?'green':'yellow'}>{readinessSummary.attention===0?'ALL CLEAR':`${readinessSummary.attention} NEED ATTENTION`}</Tag><Link className="btn mini-action primary" to={`/operations/${readinessOp.id}`}>OPEN OP</Link></div></div>
-      <div className="readiness-summary-grid">
-        <div className="readiness-summary"><div className="k">CONFIRMED</div><div className="v">{readinessSummary.going}/{readinessSummary.total}</div><div className="s">ATTENDANCE</div></div>
-        <div className="readiness-summary"><div className="k">READY</div><div className="v">{readinessSummary.ready}/{readinessSummary.going}</div><div className="s">OF CONFIRMED</div></div>
-        <div className="readiness-summary"><div className="k">SQUADS</div><div className="v">{readinessSquads.filter(s=>s.going>0&&s.pct>=80).length}/{readinessSquads.filter(s=>s.going>0).length||0}</div><div className="s">AT 80%+ READY</div></div>
-      </div>
-      <div className="grid g2 command-readiness-grid">
-        <div><div className="subpanel-head"><b>Squad readiness</b><span>LIVE</span></div>{readinessSquads.length?<div className="readiness-squad-list">{readinessSquads.map(s=><Link key={s.name} className="readiness-squad-row" to={`/squads/${encodeURIComponent(s.name)}`}><div><b>{s.name.toUpperCase()}</b><small>{s.lead} · {s.going}/{s.members} CONFIRMED</small></div><div className="readiness-row-score"><strong>{s.going?s.pct:0}%</strong><div className="mini-progress"><span style={{width:`${s.going?s.pct:0}%`}}/></div></div></Link>)}</div>:<p className="muted">No squads assigned for this operation.</p>}</div>
-        <div><div className="subpanel-head"><b>Attention queue</b><span>{readinessPlayers.length} PLAYERS</span></div>{readinessPlayers.length?<div className="attention-list">{readinessPlayers.slice(0,8).map(p=><Link key={p.id} className="attention-row" to={`/members/${p.id}`}><div><b>{p.callsign.toUpperCase()}</b><small>{p.squad} · {p.issue}</small></div><Tag tone={p.issue==='NOT READY'?'red':'yellow'}>{p.issue}</Tag></Link>)}</div>:<div className="empty-inline"><Tag tone="green">ALL PLAYERS CLEAR</Tag><p>No attendance or readiness exceptions detected for this operation.</p></div>}{readinessPlayers.length>8&&<small className="muted">+ {readinessPlayers.length-8} more in member roster</small>}</div>
-      </div>
-    </div>}
-    {readinessOp&&!admin&&<div className="card section command-readiness-card player-readiness-banner"><div className="section-head"><div><h3>Operation readiness</h3><small>{readinessOp.name?.toUpperCase()||'NEXT OP'}</small></div><Tag tone="yellow">COMMAND VIEW RESTRICTED</Tag></div><p className="muted">Your attendance and readiness are managed in the operation workspace.</p><Link className="btn" to={`/operations/${readinessOp.id}`}>OPEN OPERATION</Link></div>}
-    <div className="card section squad-analytics-card">
-      <div className="section-head"><div><h3>Squad performance</h3><small>HISTORICAL ROSTER RELIABILITY · ALL OPS</small></div><span>{squadAnalyticsLoading?'CALCULATING…':squadAnalytics.length?`${squadAnalytics.length} SQUADS`:'NO SQUAD HISTORY'}</span></div>
-      {!squadAnalytics.length?<div className="empty-state"><h3>No squad history</h3><p className="muted">Squad metrics appear after players are assigned to relational operation squads.</p></div>:<div className="table-scroll"><table className="table squad-performance-table"><thead><tr><th>SQUAD</th><th>SL</th><th>OPS</th><th>READINESS</th><th>ATTENDANCE</th><th>TREND</th><th>STATUS</th></tr></thead><tbody>{squadAnalytics.map(a=>{const tone=a.scoreLabel==='READY'?'green':a.scoreLabel==='WATCH'?'yellow':a.scoreLabel==='LOW'?'red':''; return <tr key={a.name}><td><Link className="member-link squad-link" to={`/squads/${encodeURIComponent(a.name)}`}><b>{a.name.toUpperCase()}</b><small>OPEN SQUAD</small></Link></td><td>{a.lead}</td><td>{a.assignments}<small>{a.responsePct}% responded</small></td><td><div className="analytics-cell squad-score"><b>{a.readinessPct}%</b><div className="mini-progress"><span style={{width:`${a.readinessPct||0}%`}}/></div></div></td><td><b>{a.attendancePct}%</b><small>{a.going} going</small></td><td><Tag tone={a.trend==='UP'?'green':a.trend==='DOWN'?'red':'yellow'}>{a.trend}</Tag></td><td><Tag tone={tone}>{a.scoreLabel}</Tag></td></tr>})}</tbody></table></div>}
-    </div>
     <div className="card section">
       <div className="toolbar member-toolbar"><div className="search"><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search callsign or role…"/></div><div className="member-filters"><button className={statusFilter==='active'?'active':''} onClick={()=>setStatusFilter('active')}>ACTIVE</button><button className={statusFilter==='pending'?'active':''} onClick={()=>setStatusFilter('pending')}>PENDING</button><button className={statusFilter==='inactive'?'active':''} onClick={()=>setStatusFilter('inactive')}>INACTIVE</button><button className={statusFilter==='all'?'active':''} onClick={()=>setStatusFilter('all')}>ALL</button></div></div>
       <div className="section-head"><div><h3>Member roster</h3><small>{loading?'LOADING…':`${filtered.length} MATCHING MEMBERS`}</small></div><span>LIVE FROM SUPABASE</span></div>
-      <div className="table-scroll"><table className="table"><thead><tr><th>CALLSIGN</th><th>PRIMARY ROLE</th><th>ACCESS ROLE</th><th>STATUS</th><th>READINESS</th><th>ATTENDANCE</th><th>ACTIONS</th></tr></thead><tbody>
+      <div className="table-scroll"><table className="table"><thead><tr><th>CALLSIGN</th><th>PRIMARY ROLE</th><th>ACCESS ROLE</th><th>STATUS</th><th>ACTIONS</th></tr></thead><tbody>
       {filtered.map(m=><tr key={m.id} className={!m.active?'member-inactive':''}>
-        <td><Link className="member-link" to={`/members/${m.id}`}><div className="member-cell"><div className="avatar sm">{(m.callsign||'P').slice(0,1).toUpperCase()}</div><div><b>{m.callsign||'Unnamed player'}</b><small>{m.user_id===user?.id?'YOU':(m.user_id||'').slice(0,8)}</small></div></div></Link></td>
+        <td><div className="member-cell"><div className="avatar sm">{(m.callsign||'P').slice(0,1).toUpperCase()}</div><div><b>{m.callsign||'Unnamed player'}</b><small>{m.user_id===user?.id?'YOU':(m.user_id||'').slice(0,8)}</small></div></div></td>
         <td><span>{m.primary_role||'RIFLEMAN'}</span></td>
         <td>{admin?<select value={m.role||'player'} onChange={e=>updateRole(m.id,e.target.value)} disabled={busyId===m.id || (m.user_id===user?.id&&m.role==='commander')}>{(m.user_id===user?.id&&m.role==='commander'?['commander']:['co','squad_lead','player','recruit']).map(r=><option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</select>:<Tag tone={m.role==='commander'?'green':m.role==='squad_lead'?'yellow':''}>{ROLE_LABELS[m.role]||'PLAYER'}</Tag>}</td>
         <td><Tag tone={m.membership_status==='active'?'green':m.membership_status==='pending'?'yellow':'red'}>{(m.membership_status|| (m.active?'active':'inactive')).toUpperCase()}</Tag></td>
-        {(()=>{const a=analytics[m.user_id]||{ops:0,attendancePct:0,responsePct:0,readinessPct:0,trend:'STABLE',scoreLabel:'NO DATA',noShow:0}; const tone=a.scoreLabel==='READY'?'green':a.scoreLabel==='WATCH'?'yellow':a.scoreLabel==='LOW'?'red':''; return <><td><div className="analytics-cell"><Tag tone={tone}>{analyticsLoading?'—':a.scoreLabel}</Tag><div className="mini-progress"><span style={{width:`${a.readinessPct||0}%`}}/></div><small>{a.readinessPct||0}% · {a.trend}</small></div></td><td><b>{a.attendancePct||0}%</b><small>{a.responsePct||0}% responded · {a.noShow||0} no-ready</small></td></>})()}
         <td>{admin&&m.user_id!==user?.id?(m.membership_status==='pending'?<div className="button-row"><button className="btn mini-action primary" onClick={()=>approveMember(m.id)} disabled={busyId===m.id}>APPROVE</button><button className="btn mini-action" onClick={()=>rejectMember(m.id)} disabled={busyId===m.id}>REJECT</button></div>:<button className="btn mini-action" onClick={()=>toggleActive(m.id)} disabled={busyId===m.id}>{busyId===m.id?'SAVING…':m.active?'DEACTIVATE':'REACTIVATE'}</button>):<span className="muted">—</span>}</td>
       </tr>)}
-      {!filtered.length&&!loading&&<tr><td colSpan="7"><div className="empty-state"><h3>No members found</h3><p className="muted">Try another search or status filter.</p></div></td></tr>}
+      {!filtered.length&&!loading&&<tr><td colSpan="5"><div className="empty-state"><h3>No members found</h3><p className="muted">Try another search or status filter.</p></div></td></tr>}
       </tbody></table></div>
     </div>
   </>
 }
 
-
-function SquadDeepDive({clan,user,data}){
-  const {squadName}=useParams();
-  const navigate=useNavigate();
-  const [rows,setRows]=useState([]);
-  const [members,setMembers]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [error,setError]=useState('');
-
-  useEffect(()=>{
-    let cancelled=false;
-    async function load(){
-      if(!supabase||!clan?.id){setRows([]);setMembers([]);setLoading(false);return;}
-      setLoading(true); setError('');
-      try{
-        const decoded=decodeURIComponent(squadName||'');
-        const {data:assignmentRows,error:e}=await supabase.from('roster_assignments')
-          .select('user_id,role,attendance,ready,created_at,squads(name,squad_lead_id),operations(id,number,name,map_name,scheduled_at,status,clan_id)')
-          .eq('operations.clan_id',clan.id).limit(5000);
-        if(e) throw e;
-        const filtered=(assignmentRows||[]).filter(r=>String(r.squads?.name||'UNASSIGNED').toUpperCase()===String(decoded).toUpperCase());
-        const {data:memberRows,error:me}=await supabase.from('clan_members').select('id,user_id,callsign,primary_role,role,active,membership_status').eq('clan_id',clan.id);
-        if(me) throw me;
-        const memberMap=new Map((memberRows||[]).map(m=>[m.user_id,m]));
-        const grouped={};
-        for(const r of filtered){
-          const m=memberMap.get(r.user_id)||{};
-          const a=grouped[r.user_id]||(grouped[r.user_id]={userId:r.user_id,callsign:m.callsign||'Unnamed player',primaryRole:m.primary_role||r.role||'Rifleman',accessRole:m.role||'player',active:m.active!==false,assignments:0,going:0,ready:0,recent:[]});
-          a.assignments++; if(r.attendance==='going') a.going++; if(r.ready) a.ready++;
-          a.recent.push(r);
-        }
-        const memberList=Object.values(grouped).map(a=>{
-          a.attendancePct=a.assignments?Math.round(a.going/a.assignments*100):0;
-          a.readinessPct=a.assignments?Math.round(((a.going/a.assignments)*70)+((a.ready/a.assignments)*30)):0;
-          a.noReady=Math.max(0,a.going-a.ready);
-          a.recent.sort((x,y)=>new Date(y.operations?.scheduled_at||y.created_at||0)-new Date(x.operations?.scheduled_at||x.created_at||0));
-          return a;
-        }).sort((a,b)=>b.readinessPct-a.readinessPct||b.assignments-a.assignments||a.callsign.localeCompare(b.callsign));
-        if(!cancelled){setRows(filtered);setMembers(memberList);}
-      }catch(e){if(!cancelled)setError(e.message||'Could not load squad history.');}
-      finally{if(!cancelled)setLoading(false);}
-    }
-    load(); return()=>{cancelled=true};
-  },[clan?.id,squadName]);
-
-  const name=decodeURIComponent(squadName||'');
-  const leadId=rows[0]?.squads?.squad_lead_id;
-  const lead=members.find(m=>m.userId===leadId)?.callsign||'NO SL';
-  const ops=new Map();
-  rows.forEach(r=>{if(r.operations?.id&&!ops.has(r.operations.id))ops.set(r.operations.id,r.operations);});
-  const opList=Array.from(ops.values()).sort((a,b)=>new Date(b.scheduled_at||0)-new Date(a.scheduled_at||0));
-  const totals={assignments:rows.length,going:rows.filter(r=>r.attendance==='going').length,ready:rows.filter(r=>r.ready).length};
-  const attendancePct=totals.assignments?Math.round(totals.going/totals.assignments*100):0;
-  const readinessPct=totals.assignments?Math.round((totals.going/totals.assignments*70)+(totals.ready/totals.assignments*30)):0;
-  const scoreLabel=!totals.assignments?'NO DATA':readinessPct>=80?'READY':readinessPct>=60?'WATCH':'LOW';
-  const tone=scoreLabel==='READY'?'green':scoreLabel==='WATCH'?'yellow':scoreLabel==='LOW'?'red':'';
-
-  return <>
-    <PageHead eyebrow="SQUAD INTELLIGENCE" title={`${name.toUpperCase()} DEEP-DIVE`} subtitle="MEMBERS · HISTORY · RELIABILITY" actions={<button className="btn" onClick={()=>navigate('/members')}><ArrowLeft size={14}/> BACK TO MEMBERS</button>}/>
-    {error&&<div className="error section">{error}</div>}
-    <div className="grid g4 squad-hero-grid">
-      <div className="card stat"><div className="k">STATUS</div><div className="v"><Tag tone={tone}>{loading?'—':scoreLabel}</Tag></div><div className="s">SQUAD READINESS</div></div>
-      <div className="card stat"><div className="k">READINESS</div><div className="v">{loading?'—':`${readinessPct}%`}</div><div className="s">70% ATTENDANCE + 30% READY</div></div>
-      <div className="card stat"><div className="k">ATTENDANCE</div><div className="v">{loading?'—':`${attendancePct}%`}</div><div className="s">{totals.going}/{totals.assignments} GOING ASSIGNMENTS</div></div>
-      <div className="card stat"><div className="k">SQUAD LEAD</div><div className="v text-v">{loading?'—':lead}</div><div className="s">{members.length} TRACKED MEMBERS</div></div>
-    </div>
-    <div className="card section">
-      <div className="section-head"><div><h3>Squad roster</h3><small>INDIVIDUAL RELIABILITY INSIDE {name.toUpperCase()}</small></div><span>{members.length} MEMBERS</span></div>
-      {loading?<div className="empty-state"><p>Calculating squad history…</p></div>:!members.length?<div className="empty-state"><h3>No member history</h3><p className="muted">No relational assignments exist for this squad.</p></div>:<div className="table-scroll"><table className="table squad-member-table"><thead><tr><th>CALLSIGN</th><th>ROLE</th><th>OPS</th><th>ATTENDANCE</th><th>READINESS</th><th>NO-READY</th></tr></thead><tbody>{members.map(m=><tr key={m.userId}><td><Link className="member-link" to={`/members/${m.userId}`}><b>{m.callsign.toUpperCase()}</b><small>{m.userId===user?.id?'YOU':''}</small></Link></td><td>{m.primaryRole}</td><td>{m.assignments}</td><td><b>{m.attendancePct}%</b><small>{m.going} going</small></td><td><div className="analytics-cell"><b>{m.readinessPct}%</b><div className="mini-progress"><span style={{width:`${m.readinessPct}%`}}/></div></div></td><td>{m.noReady? <Tag tone="red">{m.noReady}</Tag>:<Tag tone="green">0</Tag>}</td></tr>)}</tbody></table></div>}
-    </div>
-    <div className="card section">
-      <div className="section-head"><div><h3>Operation history</h3><small>RECENT SQUAD ASSIGNMENTS</small></div><span>{opList.length} OPS</span></div>
-      {!opList.length?<div className="empty-state"><p className="muted">No operation history found.</p></div>:<div className="table-scroll"><table className="table squad-history-table"><thead><tr><th>OP</th><th>NAME</th><th>MAP</th><th>DATE</th><th>STATUS</th></tr></thead><tbody>{opList.map(op=><tr key={op.id}><td><Link className="member-link" to={`/operations/${op.id}`}><b>#{op.number||'—'}</b></Link></td><td>{op.name||'Untitled operation'}</td><td>{op.map_name||'—'}</td><td>{op.scheduled_at?new Date(op.scheduled_at).toLocaleString([], {dateStyle:'medium',timeStyle:'short'}):'—'}</td><td><Tag tone={op.status==='active'?'green':op.status==='archived'?'':'yellow'}>{(op.status||'UNKNOWN').toUpperCase()}</Tag></td></tr>)}</tbody></table></div>}
-    </div>
-  </>;
-}
-
-
-function MemberProfile({clan,user,data}){
-  const {memberId}=useParams();
-  const navigate=useNavigate();
-  const admin=canManageMembers(clan);
-  const [member,setMember]=useState(null);
-  const [loading,setLoading]=useState(true);
-  const [busy,setBusy]=useState(false);
-  const [error,setError]=useState('');
-  const [message,setMessage]=useState('');
-  const [callsign,setCallsign]=useState('');
-  const [primaryRole,setPrimaryRole]=useState('Rifleman');
-  const [accessRole,setAccessRole]=useState('player');
-  const [squadPreference,setSquadPreference]=useState('');
-  const [commandNotes,setCommandNotes]=useState('');
-  const [operationHistory,setOperationHistory]=useState([]);
-  const [trainingRecords,setTrainingRecords]=useState([]);
-  const [trainingBusy,setTrainingBusy]=useState(false);
-  const [trainingDraft,setTrainingDraft]=useState({training_date:new Date().toISOString().slice(0,10),category:'TRAINING',session:'',result:'COMPLETED',score:'',notes:''});
-
-  useEffect(()=>{
-    let live=true;
-    async function load(){
-      setLoading(true); setError(''); setOperationHistory([]);
-      if(!supabase || !clan?.id){
-        const p=(data.players||[]).find(x=>x.id===memberId);
-        if(live){
-          const fallback=p?{id:p.id,user_id:p.memberUserId,callsign:p.name,primary_role:p.role,role:'player',active:p.status!=='inactive',membership_status:p.status==='pending'?'pending':'active'}:null;
-          setMember(fallback); setCallsign(fallback?.callsign||''); setPrimaryRole(fallback?.primary_role||'Rifleman'); setAccessRole(fallback?.role||'player'); setSquadPreference(''); setCommandNotes(''); setLoading(false);
-        }
-        return;
-      }
-      const {data:row,error:e}=await supabase.from('clan_members').select('id,user_id,callsign,primary_role,role,active,membership_status,squad_preference,command_notes,created_at,last_seen_at').eq('id',memberId).eq('clan_id',clan.id).single();
-      if(!live)return;
-      if(e){setError(e.message||'Member not found.');setMember(null);setLoading(false);return;}
-      setMember(row); setCallsign(row.callsign||''); setPrimaryRole(row.primary_role||'Rifleman'); setAccessRole(row.role||'player'); setSquadPreference(row.squad_preference||''); setCommandNotes(row.command_notes||'');
-      const {data:history}=await supabase.from('roster_assignments').select('attendance,ready,role,squads(name),operations(number,name,map_name,scheduled_at,status)').eq('user_id',row.user_id).order('created_at',{ascending:false}).limit(8);
-      if(live)setOperationHistory(history||[]);
-      const {data:training,error:trainingError}=await supabase.from('member_training_records').select('id,training_date,category,session,result,score,notes,created_at').eq('member_id',row.id).order('training_date',{ascending:false}).order('created_at',{ascending:false}).limit(12);
-      if(live){setTrainingRecords(training||[]); if(trainingError && !error)setError(trainingError.message||'Could not load training records.');}
-      setLoading(false);
-    }
-    load();
-    return ()=>{live=false};
-  },[clan?.id,memberId]);
-
-  async function addTrainingRecord(e){
-    e.preventDefault();
-    if(!admin || !member || !supabase || !trainingDraft.session.trim()) return;
-    setTrainingBusy(true); setError(''); setMessage('');
-    try{
-      const payload={clan_id:clan.id,member_id:member.id,training_date:trainingDraft.training_date,category:trainingDraft.category.trim()||'TRAINING',session:trainingDraft.session.trim(),result:trainingDraft.result,score:trainingDraft.score===''?null:Number(trainingDraft.score),notes:trainingDraft.notes.trim()||null,created_by:user.id};
-      const {data:created,error:e}=await supabase.from('member_training_records').insert(payload).select('id,training_date,category,session,result,score,notes,created_at').single();
-      if(e)throw e;
-      setTrainingRecords(rows=>[created,...rows].sort((a,b)=>String(b.training_date).localeCompare(String(a.training_date))));
-      setTrainingDraft({training_date:new Date().toISOString().slice(0,10),category:'TRAINING',session:'',result:'COMPLETED',score:'',notes:''});
-      setMessage('Training record added.');
-      await logActivity(clan.id,'training_record','Training record added',`${member.callsign||'Member'} · ${created.session}`,null,member.user_id,{result:created.result,score:created.score});
-    }catch(err){setError(err.message||'Could not add training record.');}
-    finally{setTrainingBusy(false);}
-  }
-
-  async function deleteTrainingRecord(recordId){
-    if(!admin || !supabase) return;
-    setTrainingBusy(true); setError('');
-    try{const {error:e}=await supabase.from('member_training_records').delete().eq('id',recordId).eq('clan_id',clan.id); if(e)throw e; setTrainingRecords(rows=>rows.filter(r=>r.id!==recordId));}
-    catch(err){setError(err.message||'Could not delete training record.');}
-    finally{setTrainingBusy(false);}
-  }
-
-  async function save(e){
-    e.preventDefault(); if(!member)return;
-    setBusy(true); setError(''); setMessage('');
-    const patch={callsign:callsign.trim(),squad_preference:squadPreference.trim()||null};
-    if(admin){patch.primary_role=primaryRole.trim()||null;patch.role=accessRole;patch.command_notes=commandNotes.trim()||null;}
-    try{
-      if(!supabase){setMember(m=>({...m,...patch}));setMessage('Member profile saved.');return;}
-      const {data:updated,error:e}=await supabase.from('clan_members').update(patch).eq('id',member.id).eq('clan_id',clan.id).select('id,user_id,callsign,primary_role,role,active,membership_status,squad_preference,command_notes,created_at,last_seen_at').single();
-      if(e)throw e;
-      setMember(updated); setCallsign(updated.callsign||''); setPrimaryRole(updated.primary_role||'Rifleman'); setAccessRole(updated.role||'player'); setSquadPreference(updated.squad_preference||''); setCommandNotes(updated.command_notes||''); setMessage('Member profile saved.');
-      if(member.user_id===user?.id) await logActivity(clan.id,'member_profile','Member profile updated',updated.callsign||'Member',null,member.user_id,{});
-      else if(admin) await logActivity(clan.id,'member_profile','Member profile updated',updated.callsign||'Member',null,member.user_id,{});
-    }catch(err){setError(err.message||'Could not save member profile.');}finally{setBusy(false)}
-  }
-
-  if(loading)return <div className="card section"><div className="eyebrow">PERSONNEL</div><h2>LOADING MEMBER…</h2></div>;
-  if(!member)return <div className="card section"><div className="eyebrow">PERSONNEL</div><h2>MEMBER NOT FOUND</h2>{error&&<div className="error">{error}</div>}<button className="btn" onClick={()=>navigate('/members')}><ArrowLeft size={15}/> BACK TO MEMBERS</button></div>;
-  const statusTone=member.membership_status==='active'?'green':member.membership_status==='pending'?'yellow':'red';
-  const isSelf=member.user_id===user?.id;
-  const assignedCount=operationHistory.length;
-  const goingCount=operationHistory.filter(x=>x.attendance==='going').length;
-  const declinedCount=operationHistory.filter(x=>x.attendance==='declined').length;
-  const readyCount=operationHistory.filter(x=>x.ready).length;
-  const readinessScore=assignedCount ? Math.round(((goingCount/assignedCount)*70)+((readyCount/assignedCount)*30)) : 0;
-  const readinessLabel=assignedCount===0?'NO HISTORY':readinessScore>=80?'READY':readinessScore>=60?'WATCH':'LOW';
-  const readinessTone=readinessScore>=80?'green':readinessScore>=60?'yellow':'red';
-  const trainingCompleted=trainingRecords.filter(r=>r.result==='COMPLETED').length;
-  const trainingPassed=trainingRecords.filter(r=>r.result==='PASSED').length;
-  const trainingFocus=trainingRecords.filter(r=>r.result==='FOCUS').length;
-  const attendanceResponded=operationHistory.filter(x=>['going','declined','maybe'].includes(x.attendance));
-  const attendanceRate=assignedCount?Math.round((goingCount/assignedCount)*100):0;
-  const responseRate=assignedCount?Math.round((attendanceResponded.length/assignedCount)*100):0;
-  const noShowCount=operationHistory.filter(x=>x.attendance==='going' && !x.ready).length;
-  const recentHalf=Math.max(1,Math.ceil(assignedCount/2));
-  const recentHistory=operationHistory.slice(0,recentHalf);
-  const recentGoing=recentHistory.filter(x=>x.attendance==='going').length;
-  const previousHistory=operationHistory.slice(recentHalf);
-  const previousGoing=previousHistory.filter(x=>x.attendance==='going').length;
-  const recentRate=recentHistory.length?Math.round((recentGoing/recentHistory.length)*100):0;
-  const previousRate=previousHistory.length?Math.round((previousGoing/previousHistory.length)*100):recentRate;
-  const attendanceTrend=recentRate>previousRate? 'UP':recentRate<previousRate?'DOWN':'STABLE';
-  return <>
-    <PageHead eyebrow="PERSONNEL COMMAND" title={member.callsign||'MEMBER PROFILE'} subtitle="IDENTITY · READINESS · OPERATION HISTORY" actions={<button className="btn" onClick={()=>navigate('/members')}><ArrowLeft size={15}/> BACK TO MEMBERS</button>}/>
-    <div className="grid g3">
-      <div className="card stat"><div className="k">ACCESS ROLE</div><div className="v" style={{fontSize:26}}>{ROLE_LABELS[member.role]||'PLAYER'}</div><div className="s">ACCOUNT PERMISSION</div></div>
-      <div className="card stat"><div className="k">PRIMARY ROLE</div><div className="v" style={{fontSize:26}}>{member.primary_role||'RIFLEMAN'}</div><div className="s">IN-GAME SPECIALTY</div></div>
-      <div className="card stat"><div className="k">MEMBERSHIP</div><div className="v" style={{fontSize:26}}><Tag tone={statusTone}>{(member.membership_status||'active').toUpperCase()}</Tag></div><div className="s">{isSelf?'YOUR ACCOUNT':'CLAN ACCOUNT'}</div></div>
-    </div>
-    <div className="grid g4">
-      <div className="card stat"><div className="k">READINESS</div><div className="v">{assignedCount ? `${readinessScore}%` : '—'}</div><div className="s"><Tag tone={readinessTone}>{readinessLabel}</Tag></div></div>
-      <div className="card stat"><div className="k">RECENT OPS</div><div className="v">{assignedCount}</div><div className="s">LAST 8 ASSIGNMENTS</div></div>
-      <div className="card stat"><div className="k">GOING</div><div className="v">{goingCount}</div><div className="s">RECENT ATTENDANCE</div></div>
-      <div className="card stat"><div className="k">READY</div><div className="v">{readyCount}</div><div className="s">MARKED READY</div></div>
-      <div className="card stat"><div className="k">DECLINED</div><div className="v">{declinedCount}</div><div className="s">RECENT ATTENDANCE</div></div>
-      <div className="card stat"><div className="k">TRAINING</div><div className="v">{trainingRecords.length}</div><div className="s">{trainingPassed} PASSED · {trainingFocus} FOCUS</div></div>
-    </div>
-    <div className="grid g2">
-      <div className="card form">
-        <div className="eyebrow">MEMBER IDENTITY</div>
-        <h2>{member.callsign||'Unnamed player'}</h2>
-        <p className="subtitle">{isSelf?'Update the player details you control.':'Commander view of this clan member.'}</p>
-        <form onSubmit={save} className="stack">
-          <label className="field"><span>CALLSIGN / IN-GAME NAME</span><input value={callsign} onChange={e=>setCallsign(e.target.value)} maxLength={32} required disabled={!admin&&!isSelf}/></label>
-          <label className="field"><span>SQUAD PREFERENCE</span><input value={squadPreference} onChange={e=>setSquadPreference(e.target.value)} maxLength={64} placeholder="Alpha / Armor / Recon / Flexible" disabled={!admin&&!isSelf}/></label>
-          {admin&&<><label className="field"><span>PRIMARY ROLE</span><input value={primaryRole} onChange={e=>setPrimaryRole(e.target.value)} maxLength={48} placeholder="Rifleman, AT, Medic, Engineer…"/></label><label className="field"><span>ACCESS ROLE</span><select value={accessRole} onChange={e=>setAccessRole(e.target.value)}>{ROLE_ORDER.map(r=><option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</select></label></>}
-          {error&&<div className="error">{error}</div>}{message&&<div className="success">{message}</div>}
-          {(admin||isSelf)&&<button className="btn primary" disabled={busy}>{busy?'SAVING…':'SAVE MEMBER PROFILE'} <Save size={15}/></button>}
-        </form>
-      </div>
-      <div className="card form">
-        <div className="eyebrow">COMMAND NOTES</div>
-        <h2>READINESS & CONTEXT</h2>
-        <p className="subtitle">Private command context for this member. Keep notes factual and useful for roster decisions.</p>
-        <textarea className="field" style={{minHeight:180}} value={commandNotes} onChange={e=>setCommandNotes(e.target.value)} placeholder="Attendance pattern, preferred assignment, leadership notes, training focus…" disabled={!admin}/>
-        {admin&&<div className="callout"><Shield size={15}/> Only Command can edit command notes. Other members do not see this field.</div>}
-        {!admin&&<div className="callout"><Shield size={15}/> Command notes are managed by the Commander / CO.</div>}
-      </div>
-    </div>
-    <div className="card section">
-      <div className="section-head"><div><h3>Attendance analytics</h3><small>RECENT OPERATIONAL RELIABILITY</small></div><span>{assignedCount?`${assignedCount} OPS`:'NO HISTORY'}</span></div>
-      <div className="grid g4" style={{padding:'12px 15px 4px'}}>
-        <div className="card stat"><div className="k">ATTENDANCE</div><div className="v">{assignedCount?`${attendanceRate}%`:'—'}</div><div className="s">GOING / ASSIGNED</div></div>
-        <div className="card stat"><div className="k">RESPONSE RATE</div><div className="v">{assignedCount?`${responseRate}%`:'—'}</div><div className="s">RESPONDED TO OPS</div></div>
-        <div className="card stat"><div className="k">NO-READINESS</div><div className="v">{noShowCount}</div><div className="s">GOING BUT NOT READY</div></div>
-        <div className="card stat"><div className="k">TREND</div><div className="v"><Tag tone={attendanceTrend==='UP'?'green':attendanceTrend==='DOWN'?'red':'yellow'}>{attendanceTrend}</Tag></div><div className="s">RECENT VS PRIOR OPS</div></div>
-      </div>
-    </div>
-    <div className="card section">
-      <div className="section-head"><div><h3>Operation history</h3><small>RECENT ROSTER ASSIGNMENTS</small></div><span>{assignedCount?`${assignedCount} RECORDS`:'NO ASSIGNMENTS'}</span></div>
-      {!assignedCount?<div className="empty-state"><h3>No operation history</h3><p className="muted">This member has not appeared in the relational operation roster yet.</p></div>:<div className="table-scroll"><table className="table"><thead><tr><th>OPERATION</th><th>MAP</th><th>SQUAD</th><th>ATTENDANCE</th><th>READY</th></tr></thead><tbody>{operationHistory.map((x,i)=><tr key={`${x.operations?.number||'op'}-${i}`}><td><b>OP {String(x.operations?.number||'—').padStart(3,'0')}</b><small>{x.operations?.name||'Untitled operation'}</small></td><td>{x.operations?.map_name||'—'}</td><td>{x.squads?.name||'UNASSIGNED'}</td><td><Tag tone={x.attendance==='going'?'green':x.attendance==='declined'?'red':'yellow'}>{String(x.attendance||'maybe').toUpperCase()}</Tag></td><td>{x.ready?<Tag tone="green">READY</Tag>:<Tag>NOT READY</Tag>}</td></tr>)}</tbody></table></div>}
-    </div>
-    <div className="grid g2 section">
-      <div className="card">
-        <div className="section-head"><div><h3>Training history</h3><small>PERSONNEL DEVELOPMENT · LAST 12 RECORDS</small></div><span>{trainingRecords.length?`${trainingRecords.length} RECORDS`:'NO RECORDS'}</span></div>
-        {!trainingRecords.length?<div className="empty-state"><h3>No training records</h3><p className="muted">Add qualifications, training sessions or areas of focus for this member.</p></div>:<div className="table-scroll"><table className="table"><thead><tr><th>DATE</th><th>CATEGORY</th><th>SESSION</th><th>RESULT</th><th>SCORE</th>{admin&&<th></th>}</tr></thead><tbody>{trainingRecords.map(r=><tr key={r.id}><td>{r.training_date}</td><td>{r.category}</td><td><b>{r.session}</b><small>{r.notes||'—'}</small></td><td><Tag tone={r.result==='PASSED'?'green':r.result==='FOCUS'?'yellow':'green'}>{r.result}</Tag></td><td>{r.score==null?'—':`${r.score}%`}</td>{admin&&<td><button className="iconbtn" onClick={()=>deleteTrainingRecord(r.id)} disabled={trainingBusy}><X size={14}/></button></td>}</tr>)}</tbody></table></div>}
-      </div>
-      {admin&&<div className="card form"><div className="eyebrow">PERSONNEL DEVELOPMENT</div><h2>ADD TRAINING RECORD</h2><p className="subtitle">Record a qualification, drill or training focus for this member.</p><form className="stack" onSubmit={addTrainingRecord}>
-        <div className="form-grid"><label className="field"><span>DATE</span><input type="date" value={trainingDraft.training_date} onChange={e=>setTrainingDraft(d=>({...d,training_date:e.target.value}))}/></label><label className="field"><span>CATEGORY</span><input value={trainingDraft.category} onChange={e=>setTrainingDraft(d=>({...d,category:e.target.value}))} placeholder="INFANTRY / ARMOR / COMMAND"/></label></div>
-        <label className="field"><span>SESSION / QUALIFICATION</span><input required value={trainingDraft.session} onChange={e=>setTrainingDraft(d=>({...d,session:e.target.value}))} placeholder="AT certification / SL drill / Recon"/></label>
-        <div className="form-grid"><label className="field"><span>RESULT</span><select value={trainingDraft.result} onChange={e=>setTrainingDraft(d=>({...d,result:e.target.value}))}><option>COMPLETED</option><option>PASSED</option><option>FOCUS</option></select></label><label className="field"><span>SCORE %</span><input type="number" min="0" max="100" value={trainingDraft.score} onChange={e=>setTrainingDraft(d=>({...d,score:e.target.value}))} placeholder="Optional"/></label></div>
-        <label className="field"><span>NOTES</span><textarea value={trainingDraft.notes} onChange={e=>setTrainingDraft(d=>({...d,notes:e.target.value}))} placeholder="Observed strengths, next focus, qualification details…"/></label>
-        {message&&<div className="success">{message}</div>}{error&&<div className="error">{error}</div>}
-        <button className="btn primary" disabled={trainingBusy}>{trainingBusy?'SAVING…':'ADD TRAINING RECORD'} <Save size={15}/></button>
-      </form></div>}
-    </div>
-  </>
-}
 
 function ClanSettings({clan,setClan}){
   const [name,setName]=useState(clan?.name||'');
