@@ -383,7 +383,7 @@ function Shell({session,store}){
   return <div className="app"><aside className={sidebar?'sidebar open':'sidebar'}><div className="brand">HLL // COMMAND<small>{clan?.tag ? `${clan.tag} · ` : ''}CLAN OPERATIONS HUB</small></div><nav>{[
     ['/', 'Dashboard', Home],['/command-room','Command Room',Shield],['/my-operation','My Operation',Radio],['/operations','Operations',Swords],['/calendar','Calendar',CalendarDays],['/roster','Roster',Users],['/members','Members',Users],['/strategy','Strategies',Target],['/maps','Stage Maps',MapIcon],['/briefings','Briefings',FileText],['/activity','Command Feed',Activity],['/wiki','Clan Wiki',BookOpen],['/aar','AAR',ClipboardCheck],...(canCommand(clan)?[['/settings','Clan Settings',Settings]]:[])
   ].map(([to,label,Icon])=><NavLink key={to} to={to} onClick={()=>setSidebar(false)} className={({isActive})=>isActive?'navitem active':'navitem'}><Icon size={17}/><span>{label}</span></NavLink>)}</nav><div className="side-bottom"><div className="online"><i/>SYSTEM ONLINE</div><div>{clan?.name || 'HLL Demo Clan'}</div><div className="muted">{supabase ? 'SUPABASE CONNECTED' : 'LOCAL DEMO MODE'}</div></div></aside><main><header className="topbar"><button className="mobile-menu" onClick={()=>setSidebar(v=>!v)}><Menu/></button><TopCrumb/><div className="top-right"><button className="iconbtn" onClick={()=>navigate('/activity')} title="Command Feed"><Bell size={16}/>{activityCount>0&&<em className="activity-badge">{activityCount>99?'99+':activityCount}</em>}</button><button className="profile profile-clickable" onClick={()=>navigate('/profile')} title="Edit profile"><div className="avatar">{displayName.slice(0,1).toUpperCase()}</div><div><b>{displayName}</b><span>{(clan?.role || DEMO_USER.role).toUpperCase()}</span></div></button><button className="iconbtn" onClick={logout} title="Log out"><LogOut size={15}/></button></div></header><div className="content"><Routes>
-    <Route path="/reset-password" element={<ResetPassword/>}/><Route path="/" element={<Dashboard data={data} clan={clan}/>}/><Route path="/my-operation" element={<MyOperation data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/operations" element={<Operations data={data} setData={setData} clan={clan}/>}/><Route path="/operations/:id" element={<OperationDetail data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/calendar" element={<Calendar data={data} setData={setData}/>}/><Route path="/roster" element={<Roster data={data} setData={setData}/>}/><Route path="/members" element={<Members clan={clan} user={user} data={data} setClan={store.setClan}/>}/><Route path="/settings" element={canCommand(clan)?<ClanSettings clan={clan} setClan={store.setClan}/>:<PermissionCard clan={clan} title="CLAN SETTINGS CONTROLLED" text="Only Commander and CO roles can edit clan settings."/>}/><Route path="/strategy" element={canCommand(clan)?<Strategy data={data} setData={setData}/>:<PermissionCard clan={clan} title="STRATEGY CONTROLLED" text="Commander and CO roles can build and publish clan strategy."/>}/><Route path="/maps" element={canCommand(clan)?<Maps data={data} setData={setData}/>:<PermissionCard clan={clan} title="STAGE MAPS CONTROLLED" text="Command roles manage the tactical map workspace."/>}/><Route path="/briefings" element={canCommand(clan)?<Briefings data={data} setData={setData}/>:<PermissionCard clan={clan} title="BRIEFINGS CONTROLLED" text="Command roles publish player briefings."/>}/><Route path="/activity" element={<ActivityFeed clan={clan} user={user} data={data}/>}/><Route path="/command-room" element={<CommandRoom clan={clan} user={user} data={data}/>}/><Route path="/wiki" element={<Wiki data={data} setData={setData}/>}/><Route path="/aar" element={canCommand(clan)?<AAR data={data} setData={setData}/>:<PermissionCard clan={clan} title="AAR CONTROLLED" text="Command roles own the official after-action review."/>}/><Route path="/profile" element={<Profile user={user} clan={clan} store={store}/>}/>
+    <Route path="/reset-password" element={<ResetPassword/>}/><Route path="/" element={<Dashboard data={data} clan={clan}/>}/><Route path="/my-operation" element={<MyOperation data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/operations" element={<Operations data={data} setData={setData} clan={clan}/>}/><Route path="/operations/:id" element={<OperationDetail data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/calendar" element={<Calendar data={data} setData={setData}/>}/><Route path="/roster" element={<Roster data={data} setData={setData}/>}/><Route path="/members" element={<Members clan={clan} user={user} data={data} setClan={store.setClan}/>}/><Route path="/members/:memberId" element={<MemberProfile clan={clan} user={user}/>}/><Route path="/settings" element={canCommand(clan)?<ClanSettings clan={clan} setClan={store.setClan}/>:<PermissionCard clan={clan} title="CLAN SETTINGS CONTROLLED" text="Only Commander and CO roles can edit clan settings."/>}/><Route path="/strategy" element={canCommand(clan)?<Strategy data={data} setData={setData}/>:<PermissionCard clan={clan} title="STRATEGY CONTROLLED" text="Commander and CO roles can build and publish clan strategy."/>}/><Route path="/maps" element={canCommand(clan)?<Maps data={data} setData={setData}/>:<PermissionCard clan={clan} title="STAGE MAPS CONTROLLED" text="Command roles manage the tactical map workspace."/>}/><Route path="/briefings" element={canCommand(clan)?<Briefings data={data} setData={setData}/>:<PermissionCard clan={clan} title="BRIEFINGS CONTROLLED" text="Command roles publish player briefings."/>}/><Route path="/activity" element={<ActivityFeed clan={clan} user={user} data={data}/>}/><Route path="/command-room" element={<CommandRoom clan={clan} user={user} data={data}/>}/><Route path="/wiki" element={<Wiki data={data} setData={setData}/>}/><Route path="/aar" element={canCommand(clan)?<AAR data={data} setData={setData}/>:<PermissionCard clan={clan} title="AAR CONTROLLED" text="Command roles own the official after-action review."/>}/><Route path="/profile" element={<Profile user={user} clan={clan} store={store}/>}/>
   </Routes></div></main></div>
 }
 
@@ -1006,7 +1006,7 @@ function Members({clan,user,data,setClan}){
       <div className="section-head"><div><h3>Member roster</h3><small>{loading?'LOADING…':`${filtered.length} MATCHING MEMBERS`}</small></div><span>LIVE FROM SUPABASE</span></div>
       <div className="table-scroll"><table className="table"><thead><tr><th>CALLSIGN</th><th>PRIMARY ROLE</th><th>ACCESS ROLE</th><th>STATUS</th><th>ACTIONS</th></tr></thead><tbody>
       {filtered.map(m=><tr key={m.id} className={!m.active?'member-inactive':''}>
-        <td><div className="member-cell"><div className="avatar sm">{(m.callsign||'P').slice(0,1).toUpperCase()}</div><div><b>{m.callsign||'Unnamed player'}</b><small>{m.user_id===user?.id?'YOU':(m.user_id||'').slice(0,8)}</small></div></div></td>
+        <td><Link className="member-cell member-link" to={`/members/${m.id}`}><div className="avatar sm">{(m.callsign||'P').slice(0,1).toUpperCase()}</div><div><b>{m.callsign||'Unnamed player'}</b><small>{m.user_id===user?.id?'YOU':(m.user_id||'').slice(0,8)}</small></div></Link></td>
         <td><span>{m.primary_role||'RIFLEMAN'}</span></td>
         <td>{admin?<select value={m.role||'player'} onChange={e=>updateRole(m.id,e.target.value)} disabled={busyId===m.id || (m.user_id===user?.id&&m.role==='commander')}>{(m.user_id===user?.id&&m.role==='commander'?['commander']:['co','squad_lead','player','recruit']).map(r=><option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</select>:<Tag tone={m.role==='commander'?'green':m.role==='squad_lead'?'yellow':''}>{ROLE_LABELS[m.role]||'PLAYER'}</Tag>}</td>
         <td><Tag tone={m.membership_status==='active'?'green':m.membership_status==='pending'?'yellow':'red'}>{(m.membership_status|| (m.active?'active':'inactive')).toUpperCase()}</Tag></td>
@@ -1018,6 +1018,79 @@ function Members({clan,user,data,setClan}){
   </>
 }
 
+
+
+function MemberProfile({clan,user}){
+  const {memberId}=useParams();
+  const navigate=useNavigate();
+  const admin=canManageMembers(clan);
+  const [member,setMember]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  const [message,setMessage]=useState('');
+  const [callsign,setCallsign]=useState('');
+  const [primaryRole,setPrimaryRole]=useState('');
+  const [squadPreference,setSquadPreference]=useState('');
+  const [commandNotes,setCommandNotes]=useState('');
+  const [active,setActive]=useState(true);
+  const [accessRole,setAccessRole]=useState('player');
+  const primaryRoles=['Rifleman','Assault','Support','MG','AT','Engineer','Medic','Recon','Spotter','Sniper','Tank','Armor','Squad Lead','Commander','CO'];
+  const memberIsSelf=member?.user_id===user?.id;
+  const canEdit=admin||memberIsSelf;
+
+  useEffect(()=>{
+    let cancelled=false;
+    (async()=>{
+      if(!supabase||!clan?.id||!memberId){setLoading(false);return;}
+      setLoading(true);setError('');
+      const {data:m,error:e}=await supabase.from('clan_members').select('id,user_id,callsign,primary_role,role,active,membership_status,created_at,profiles(display_name)').eq('id',memberId).eq('clan_id',clan.id).maybeSingle();
+      if(e){if(!cancelled){setError(e.message);setLoading(false);}return;}
+      if(!m){if(!cancelled){setError('Member not found in this clan.');setLoading(false);}return;}
+      const {data:prefs}=await supabase.from('clan_member_preferences').select('squad_preference,updated_at').eq('member_id',m.id).eq('clan_id',clan.id).maybeSingle();
+      let notes='';
+      if(admin){ const {data:n}=await supabase.from('clan_member_command_notes').select('notes').eq('member_id',m.id).eq('clan_id',clan.id).maybeSingle(); notes=n?.notes||''; }
+      if(!cancelled){
+        setMember(m);setCallsign(m.callsign||m.profiles?.display_name||'');setPrimaryRole(m.primary_role||'Rifleman');setSquadPreference(prefs?.squad_preference||'');setCommandNotes(notes);setActive(!!m.active);setAccessRole(m.role||'player');setLoading(false);
+      }
+    })();
+    return()=>{cancelled=true};
+  },[clan?.id,memberId,admin]);
+
+  async function save(){
+    if(!supabase||!clan?.id||!member){setMessage('Profile changes are available in the connected clan workspace.');return;}
+    const clean=callsign.trim(); if(!clean){setError('Callsign is required.');return;}
+    setBusy(true);setError('');setMessage('');
+    try{
+      const patch={callsign:clean,primary_role:primaryRole.trim()||'Rifleman'};
+      if(admin){patch.role=accessRole;patch.active=active;}
+      else if(!memberIsSelf){throw new Error('You can only edit your own profile.');}
+      const {data:updated,error:e}=await supabase.from('clan_members').update(patch).eq('id',member.id).eq('clan_id',clan.id).select('id,user_id,callsign,primary_role,role,active,membership_status,created_at,profiles(display_name)').single();
+      if(e)throw e;
+      const {error:pe}=await supabase.from('clan_member_preferences').upsert({member_id:member.id,clan_id:clan.id,squad_preference:squadPreference.trim()||null,updated_by:user.id,updated_at:new Date().toISOString()},{onConflict:'member_id'});
+      if(pe)throw pe;
+      if(admin){
+        const {error:ne}=await supabase.from('clan_member_command_notes').upsert({member_id:member.id,clan_id:clan.id,notes:commandNotes.trim()||null,updated_by:user.id,updated_at:new Date().toISOString()},{onConflict:'member_id'});
+        if(ne)throw ne;
+      }
+      setMember(updated);setMessage('Member profile saved.');
+    }catch(e){setError(e.message||'Could not save member profile.');}
+    finally{setBusy(false);}
+  }
+
+  if(loading) return <><PageHead eyebrow="PERSONNEL COMMAND" title="MEMBER PROFILE" subtitle="LOADING PROFILE"/><div className="card section"><div className="empty-state">LOADING…</div></div></>;
+  if(error&&!member) return <><PageHead eyebrow="PERSONNEL COMMAND" title="MEMBER PROFILE" subtitle="MEMBER LOOKUP" actions={<Link className="btn" to="/members"><ArrowLeft size={15}/> BACK TO MEMBERS</Link>}/><div className="card section"><div className="error">{error}</div></div></>;
+  return <>
+    <PageHead eyebrow="PERSONNEL COMMAND" title={callsign||'MEMBER PROFILE'} subtitle={`${clan?.tag||'CLAN'} · ${accessRole.toUpperCase()} · ${active?'ACTIVE':'INACTIVE'}`} actions={<><Link className="btn" to="/members"><ArrowLeft size={15}/> MEMBERS</Link>{canEdit&&<button className="btn primary" onClick={save} disabled={busy}>{busy?'SAVING…':'SAVE PROFILE'} <Save size={15}/></button>}</>}/>
+    <div className="grid g3">
+      <div className="card profile-card"><div className="avatar xl">{(callsign||'P').slice(0,1).toUpperCase()}</div><h2>{callsign||'Unnamed player'}</h2><div className="status-line"><Tag tone={active?'green':'red'}>{active?'ACTIVE':'INACTIVE'}</Tag><Tag>{ROLE_LABELS[accessRole]||accessRole.toUpperCase()}</Tag></div><small>{memberIsSelf?'YOUR ACCOUNT':`MEMBER ${member.id.slice(0,8).toUpperCase()}`}</small></div>
+      <div className="card form"><div className="eyebrow">PLAYER IDENTITY</div><h3>CALLSIGN & ROLE</h3><div className="stack"><label className="field"><span>CALLSIGN / IN-GAME NAME</span><input value={callsign} onChange={e=>setCallsign(e.target.value)} maxLength={32} disabled={!canEdit}/></label><label className="field"><span>PRIMARY ROLE</span><select value={primaryRole} onChange={e=>setPrimaryRole(e.target.value)} disabled={!canEdit}>{primaryRoles.map(r=><option key={r}>{r}</option>)}</select></label></div></div>
+      <div className="card form"><div className="eyebrow">SQUAD FIT</div><h3>PREFERENCE</h3><label className="field"><span>PREFERRED SQUAD</span><input value={squadPreference} onChange={e=>setSquadPreference(e.target.value)} placeholder="Alpha / Bravo / Charlie…" maxLength={32} disabled={!canEdit}/></label><p className="muted">Preference guides assignments; command can still change squad placement for an operation.</p></div>
+    </div>
+    {admin&&<div className="grid g2 section"><div className="card form"><div className="eyebrow">ACCESS CONTROL</div><h3>CLAN ACCESS ROLE</h3><div className="stack"><label className="field"><span>ACCESS ROLE</span><select value={accessRole} onChange={e=>setAccessRole(e.target.value)} disabled={memberIsSelf&&accessRole==='commander'}>{['commander','co','squad_lead','player','recruit'].map(r=><option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</select></label><label className="check-row"><input type="checkbox" checked={active} onChange={e=>setActive(e.target.checked)} disabled={memberIsSelf}/><span>MEMBERSHIP ACTIVE</span></label><div className="callout"><Shield size={15}/> Roles control what this member can access inside the command system.</div></div></div><div className="card form"><div className="eyebrow">COMMAND ONLY</div><h3>COMMAND NOTES</h3><label className="field"><span>PRIVATE COMMAND NOTES</span><textarea value={commandNotes} onChange={e=>setCommandNotes(e.target.value)} placeholder="Reliability, training focus, leadership notes, admin context…" maxLength={2000}/></label><p className="muted">Visible only to Commander and CO accounts.</p></div></div>}
+    {(error||message)&&<div className={`section ${error?'error':'success'}`}>{error||message}</div>}
+  </>;
+}
 
 function ClanSettings({clan,setClan}){
   const [name,setName]=useState(clan?.name||'');
