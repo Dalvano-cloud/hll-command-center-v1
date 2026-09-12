@@ -647,17 +647,39 @@ function Operations({data,setData,clan}){
   const navigate=useNavigate();
   const [creating,setCreating]=useState(false);
   const [draft,setDraft]=useState({name:'',opponent:'',map:'',mode:'Warfare',date:new Date().toISOString().slice(0,10),time:'20:00'});
-  function create(){
+  async function create(){
     if(!command || !draft.name.trim()||!draft.map.trim()) return;
     const id=String(40+data.ops.length+1).padStart(3,'0');
-    const op=makeOperation({...draft,id,commander:'Command'} ,0);
+    let templateSquads=[
+      {id:'alpha',name:'Alpha',lead:'',playerIds:[]},
+      {id:'bravo',name:'Bravo',lead:'',playerIds:[]},
+      {id:'charlie',name:'Charlie',lead:'',playerIds:[]},
+      {id:'delta',name:'Delta',lead:'',playerIds:[]}
+    ];
+    try{
+      if(supabase && clan?.id){
+        const [{data:defaults,error:de},{data:members,error:me}]=await Promise.all([
+          supabase.from('clan_squads').select('id,name,short_code,squad_lead_id,sort_order,active').eq('clan_id',clan.id).eq('active',true).order('sort_order').order('name'),
+          supabase.from('clan_squad_members').select('squad_id,user_id').eq('clan_id',clan.id)
+        ]);
+        if(de) throw de; if(me) throw me;
+        if(defaults?.length){
+          const userToPlayer=new Map((data.players||[]).filter(p=>p.memberUserId).map(p=>[p.memberUserId,p.id]));
+          templateSquads=defaults.map((s,i)=>({
+            id:`tpl-${s.id}`, name:s.name, lead:userToPlayer.get(s.squad_lead_id)||'', playerIds:(members||[]).filter(m=>m.squad_id===s.id).map(m=>userToPlayer.get(m.user_id)).filter(Boolean),
+            clanSquadId:s.id, shortCode:s.short_code||'', sortOrder:s.sort_order??i
+          }));
+        }
+      }
+    }catch(e){ console.warn('Could not load clan squad defaults; creating empty operation squads.',e); }
+    const op=makeOperation({...draft,id,commander:'Command',squads:templateSquads} ,0);
     setData(d=>({...d,ops:[op,...d.ops]}));
     setCreating(false); setDraft({name:'',opponent:'',map:'',mode:'Warfare',date:new Date().toISOString().slice(0,10),time:'20:00'});
     navigate(`/operations/${id}`);
   }
   return <>
     <PageHead eyebrow="OPERATIONS" title="MATCH WORKSPACE" subtitle="ONE RECORD FOR EVERYTHING CONNECTED TO A MATCH" actions={command?<button className="btn primary" onClick={()=>setCreating(v=>!v)}><Plus size={15}/> NEW OPERATION</button>:<Tag tone="yellow">READ ONLY</Tag>}/>
-    {creating&&<div className="card section"><div className="section-head"><h3>New operation</h3><span>CREATE MISSION RECORD</span></div><div className="form-grid"><Input label="OPERATION NAME" value={draft.name} onChange={v=>setDraft(x=>({...x,name:v}))} placeholder="Carentan — Defense"/><Input label="OPPONENT" value={draft.opponent} onChange={v=>setDraft(x=>({...x,opponent:v}))} placeholder="4th Infantry"/><Input label="MAP" value={draft.map} onChange={v=>setDraft(x=>({...x,map:v}))} placeholder="Carentan"/><Input label="MODE" value={draft.mode} onChange={v=>setDraft(x=>({...x,mode:v}))} placeholder="Warfare"/><label className="field"><span>DATE</span><input type="date" value={draft.date} onChange={e=>setDraft(x=>({...x,date:e.target.value}))}/></label><label className="field"><span>TIME</span><input type="time" value={draft.time} onChange={e=>setDraft(x=>({...x,time:e.target.value}))}/></label></div><div className="actions"><button className="btn" onClick={()=>setCreating(false)}>CANCEL</button><button className="btn primary" onClick={create}><Check size={15}/> CREATE OPERATION</button></div></div>}
+    {creating&&<div className="card section"><div className="section-head"><h3>New operation</h3><span>CREATE MISSION RECORD</span></div><div className="form-grid"><Input label="OPERATION NAME" value={draft.name} onChange={v=>setDraft(x=>({...x,name:v}))} placeholder="Carentan — Defense"/><Input label="OPPONENT" value={draft.opponent} onChange={v=>setDraft(x=>({...x,opponent:v}))} placeholder="4th Infantry"/><Input label="MAP" value={draft.map} onChange={v=>setDraft(x=>({...x,map:v}))} placeholder="Carentan"/><Input label="MODE" value={draft.mode} onChange={v=>setDraft(x=>({...x,mode:v}))} placeholder="Warfare"/><label className="field"><span>DATE</span><input type="date" value={draft.date} onChange={e=>setDraft(x=>({...x,date:e.target.value}))}/></label><label className="field"><span>TIME</span><input type="time" value={draft.time} onChange={e=>setDraft(x=>({...x,time:e.target.value}))}/></label></div><div className="callout"><Swords size={15}/> New operations automatically start from your clan's default squad roster. Command can still move players freely after creation.</div><div className="actions"><button className="btn" onClick={()=>setCreating(false)}>CANCEL</button><button className="btn primary" onClick={create}><Check size={15}/> CREATE OPERATION</button></div></div>}
     <div className="grid g3"><Stat label="ACTIVE OPERATIONS" value={data.ops.filter(o=>o.status==='active').length} sub="LIVE MATCH WORKSPACES" trend/><Stat label="NEXT EVENT" value={data.events[0]?.date?.slice(5)||'—'} sub={data.events[0]?.title||'NO EVENT'}/><Stat label="TOTAL RECORDS" value={data.ops.length} sub="MATCH HISTORY"/></div>
     <div className="card section"><div className="section-head"><h3>All operations</h3><span>{data.ops.length} RECORDS</span></div><table className="table"><thead><tr><th>OPERATION</th><th>OPPONENT</th><th>MAP</th><th>DATE</th><th>READINESS</th><th>STATUS</th></tr></thead><tbody>{data.ops.map(op=><tr key={op.id} onClick={()=>navigate(`/operations/${op.id}`)} className="clickrow"><td><b>#{op.id}</b> {op.name}</td><td>{op.opponent}</td><td>{op.map}</td><td>{op.date} · {op.time}</td><td>{op.strategyData?.intent?<Tag tone="green">READY</Tag>:<Tag tone="yellow">DRAFT</Tag>}</td><td>{op.status==='active'?<Tag tone="green">ACTIVE</Tag>:op.status==='draft'?<Tag tone="yellow">DRAFT</Tag>:<Tag>ARCHIVED</Tag>}</td></tr>)}</tbody></table></div>
   </>
@@ -758,6 +780,23 @@ function OperationSquads({op,data,setData,clan}){
   const squads=op.squads||[];
   const roster=data.players.filter(p=>p.memberUserId||p.id);
   const [selectedPlayer,setSelectedPlayer]=useState('');
+  const [loadingDefaults,setLoadingDefaults]=useState(false);
+  const [notice,setNotice]=useState('');
+  async function loadClanDefaults(){
+    if(!manage||!supabase||!clan?.id)return;
+    setLoadingDefaults(true); setNotice('');
+    try{
+      const [{data:defaults,error:de},{data:members,error:me}]=await Promise.all([
+        supabase.from('clan_squads').select('id,name,short_code,squad_lead_id,sort_order,active').eq('clan_id',clan.id).eq('active',true).order('sort_order').order('name'),
+        supabase.from('clan_squad_members').select('squad_id,user_id').eq('clan_id',clan.id)
+      ]);
+      if(de)throw de; if(me)throw me;
+      const userToPlayer=new Map(roster.filter(p=>p.memberUserId).map(p=>[p.memberUserId,p.id]));
+      const next=(defaults||[]).map((s,i)=>({id:`tpl-${s.id}`,name:s.name,lead:userToPlayer.get(s.squad_lead_id)||'',playerIds:(members||[]).filter(m=>m.squad_id===s.id).map(m=>userToPlayer.get(m.user_id)).filter(Boolean),clanSquadId:s.id,shortCode:s.short_code||'',sortOrder:s.sort_order??i}));
+      setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?{...x,squads:next}:x)}));
+      setNotice(`${next.length} default squads loaded. Last-minute changes remain unlocked.`);
+    }catch(e){setNotice(e.message||'Could not load clan squad defaults.')}finally{setLoadingDefaults(false)}
+  }
 
   function currentSquad(pid){
     return squads.find(s=>(s.playerIds||[]).includes(pid));
@@ -805,8 +844,10 @@ function OperationSquads({op,data,setData,clan}){
       eyebrow={`OPERATION #${op.id}`}
       title="LIVE SQUAD BOARD"
       subtitle="FLEXIBLE ASSIGNMENTS — CHANGE ANYTIME"
-      actions={<><Tag tone="green">LIVE</Tag>{manage&&<button className="btn primary" onClick={addSquad}><Plus size={15}/> ADD SQUAD</button>}</>}
+      actions={<><Tag tone="green">LIVE</Tag>{manage&&<><button className="btn" onClick={loadClanDefaults} disabled={loadingDefaults}>{loadingDefaults?'LOADING…':'LOAD CLAN DEFAULTS'}</button><button className="btn primary" onClick={addSquad}><Plus size={15}/> ADD SQUAD</button></>}</>}
     />
+
+    {notice&&<div className="success section">{notice}</div>}
 
     <div className="callout section-callout"><AlertTriangle size={15}/><div><b>NO HARD LOCK</b><span>Last-minute swaps are expected. Changes are tracked automatically so command can see what moved and when.</span></div></div>
 
@@ -1138,6 +1179,7 @@ function SquadHub({clan,user}){
   useEffect(()=>{load()},[clan?.id]);
   const memberByUser=useMemo(()=>Object.fromEntries(members.map(m=>[m.user_id,m])),[members]);
   const assignedByUser=useMemo(()=>Object.fromEntries(assignments.map(a=>[a.user_id,a])),[assignments]);
+  const preferenceByMember=useMemo(()=>Object.fromEntries(preferences.map(p=>[p.member_id,p.squad_preference])),[preferences]);
   async function createSquad(){
     if(!command||!supabase)return; const name=window.prompt('Squad name','Alpha'); if(!name?.trim())return; const short=window.prompt('Short code','A'); if(!short?.trim())return;
     setBusy(true); setError(''); try{const {error:e}=await supabase.from('clan_squads').insert({clan_id:clan.id,name:name.trim(),short_code:short.trim().toUpperCase(),created_by:user.id,sort_order:squads.length}); if(e)throw e; await load();}catch(e){setError(e.message||'Could not create squad.')}finally{setBusy(false)}
