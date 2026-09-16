@@ -1,0 +1,35 @@
+name: Apply production release patch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.release/production_patch.py'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Apply release patch
+        run: python .release/production_patch.py
+
+      - name: Validate syntax
+        run: node --check src/main.jsx
+
+      - name: Commit patched app
+        run: |
+          if git diff --quiet -- src/main.jsx; then
+            echo 'No application changes produced.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/main.jsx
+          git commit -m 'Consolidated production readiness and lifecycle release'
+          git push
