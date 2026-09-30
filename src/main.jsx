@@ -235,7 +235,13 @@ function useClanStore(user){
       const members=(memberRows||[]).map(m=>({id:m.user_id,name:m.callsign||m.profiles?.display_name||'Player',primary_role:m.primary_role,role:m.role}));
       const cloudPlayers=buildMemberPlayers(members);
       const clanInfo={id:member.clan_id,name:member.clans?.name||'Clan',tag:member.clans?.tag||'',inviteCode:member.clans?.invite_code||'',role:member.role,callsign:member.callsign||user.user_metadata?.name||user.email?.split('@')[0]||'Player'};
-      const blankWorkspace={...seed,ops:[],events:[],players:cloudPlayers,briefings:{},wiki:[],aar:{},strategy:{name:'',intent:'',orders:''}};
+      const {data:eventRows,error:eventError}=await supabase.from('events').select('id,title,event_type,starts_at,ends_at,location,notes,operation_id').eq('clan_id',member.clan_id).order('starts_at');
+      if(eventError){ if(!cancelled){setError(eventError.message);setLoading(false);} return; }
+      const cloudEvents=(eventRows||[]).map(e=>{
+        const d=new Date(e.starts_at);
+        return {id:e.id,title:e.title,type:e.event_type,date:isNaN(d)?'':d.toISOString().slice(0,10),time:isNaN(d)?'':d.toISOString().slice(11,16),meta:e.location||e.notes||'Clan event',status:'open',attendance:'0/0',operationId:e.operation_id||null,endsAt:e.ends_at||null};
+      });
+      const blankWorkspace={...seed,ops:[],events:cloudEvents,players:cloudPlayers,briefings:{},wiki:[],aar:{},strategy:{name:'',intent:'',orders:''}};
       let base=blankWorkspace;
       const canReadWorkspace=['commander','co'].includes(member.role);
       if(canReadWorkspace){
@@ -243,6 +249,7 @@ function useClanStore(user){
         if(stateError){ if(!cancelled){setError(stateError.message);setLoading(false);} return; }
         base=normalizeData(row?.data || base);
       }
+      base={...base,players:cloudPlayers,events:cloudEvents};
       try{
         const merged=await loadRelationalOperations(member.clan_id,base,cloudPlayers);
         if(!cancelled){setClan(clanInfo);setData(merged);setNeedsOnboarding(false);setLoading(false);setHydrated(true);}
