@@ -383,7 +383,7 @@ function Shell({session,store}){
   return <div className="app"><aside className={sidebar?'sidebar open':'sidebar'}><div className="brand">HLL // COMMAND<small>{clan?.tag ? `${clan.tag} · ` : ''}CLAN OPERATIONS HUB</small></div><nav>{[
     ['/', 'Dashboard', Home],['/command-room','Command Room',Shield],['/my-operation','My Operation',Radio],['/operations','Operations',Swords],['/calendar','Calendar',CalendarDays],['/roster','Roster',Users],['/squads','Squad Hub',Users],['/members','Members',Users],['/strategy','Strategies',Target],['/maps','Stage Maps',MapIcon],['/briefings','Briefings',FileText],['/activity','Command Feed',Activity],['/wiki','Clan Wiki',BookOpen],['/aar','AAR',ClipboardCheck],...(canCommand(clan)?[['/settings','Clan Settings',Settings]]:[])
   ].map(([to,label,Icon])=><NavLink key={to} to={to} onClick={()=>setSidebar(false)} className={({isActive})=>isActive?'navitem active':'navitem'}><Icon size={17}/><span>{label}</span></NavLink>)}</nav><div className="side-bottom"><div className="online"><i/>SYSTEM ONLINE</div><div>{clan?.name || 'HLL Demo Clan'}</div><div className="muted">{supabase ? 'SUPABASE CONNECTED' : 'LOCAL DEMO MODE'}</div></div></aside><main><header className="topbar"><button className="mobile-menu" onClick={()=>setSidebar(v=>!v)}><Menu/></button><TopCrumb/><div className="top-right"><button className="iconbtn" onClick={()=>navigate('/activity')} title="Command Feed"><Bell size={16}/>{activityCount>0&&<em className="activity-badge">{activityCount>99?'99+':activityCount}</em>}</button><button className="profile profile-clickable" onClick={()=>navigate('/profile')} title="Edit profile"><div className="avatar">{displayName.slice(0,1).toUpperCase()}</div><div><b>{displayName}</b><span>{(clan?.role || DEMO_USER.role).toUpperCase()}</span></div></button><button className="iconbtn" onClick={logout} title="Log out"><LogOut size={15}/></button></div></header><div className="content"><Routes>
-    <Route path="/reset-password" element={<ResetPassword/>}/><Route path="/" element={<Dashboard data={data} clan={clan}/>}/><Route path="/my-operation" element={<MyOperation data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/operations" element={<Operations data={data} setData={setData} clan={clan}/>}/><Route path="/operations/:id" element={<OperationDetail data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/calendar" element={<Calendar data={data} setData={setData}/>}/><Route path="/roster" element={<Roster data={data} setData={setData}/>}/><Route path="/squads" element={<SquadHub clan={clan} user={user}/>}/><Route path="/members" element={<Members clan={clan} user={user} data={data} setClan={store.setClan}/>}/><Route path="/members/:memberId" element={<MemberProfile clan={clan} user={user}/>}/><Route path="/settings" element={canCommand(clan)?<ClanSettings clan={clan} setClan={store.setClan}/>:<PermissionCard clan={clan} title="CLAN SETTINGS CONTROLLED" text="Only Commander and CO roles can edit clan settings."/>}/><Route path="/strategy" element={canCommand(clan)?<Strategy data={data} setData={setData}/>:<PermissionCard clan={clan} title="STRATEGY CONTROLLED" text="Commander and CO roles can build and publish clan strategy."/>}/><Route path="/maps" element={canCommand(clan)?<Maps data={data} setData={setData}/>:<PermissionCard clan={clan} title="STAGE MAPS CONTROLLED" text="Command roles manage the tactical map workspace."/>}/><Route path="/briefings" element={canCommand(clan)?<Briefings data={data} setData={setData}/>:<PermissionCard clan={clan} title="BRIEFINGS CONTROLLED" text="Command roles publish player briefings."/>}/><Route path="/activity" element={<ActivityFeed clan={clan} user={user} data={data}/>}/><Route path="/command-room" element={<CommandRoom clan={clan} user={user} data={data}/>}/><Route path="/wiki" element={<Wiki data={data} setData={setData}/>}/><Route path="/aar" element={canCommand(clan)?<AAR data={data} setData={setData}/>:<PermissionCard clan={clan} title="AAR CONTROLLED" text="Command roles own the official after-action review."/>}/><Route path="/profile" element={<Profile user={user} clan={clan} store={store}/>}/>
+    <Route path="/reset-password" element={<ResetPassword/>}/><Route path="/" element={<Dashboard data={data} clan={clan}/>}/><Route path="/my-operation" element={<MyOperation data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/operations" element={<Operations data={data} setData={setData} clan={clan}/>}/><Route path="/operations/:id" element={<OperationDetail data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/calendar" element={<Calendar data={data} setData={setData} clan={clan} user={user}/>}/><Route path="/roster" element={<Roster data={data} setData={setData}/>}/><Route path="/squads" element={<SquadHub clan={clan} user={user}/>}/><Route path="/members" element={<Members clan={clan} user={user} data={data} setClan={store.setClan}/>}/><Route path="/members/:memberId" element={<MemberProfile clan={clan} user={user}/>}/><Route path="/settings" element={canCommand(clan)?<ClanSettings clan={clan} setClan={store.setClan}/>:<PermissionCard clan={clan} title="CLAN SETTINGS CONTROLLED" text="Only Commander and CO roles can edit clan settings."/>}/><Route path="/strategy" element={canCommand(clan)?<Strategy data={data} setData={setData}/>:<PermissionCard clan={clan} title="STRATEGY CONTROLLED" text="Commander and CO roles can build and publish clan strategy."/>}/><Route path="/maps" element={canCommand(clan)?<Maps data={data} setData={setData}/>:<PermissionCard clan={clan} title="STAGE MAPS CONTROLLED" text="Command roles manage the tactical map workspace."/>}/><Route path="/briefings" element={canCommand(clan)?<Briefings data={data} setData={setData}/>:<PermissionCard clan={clan} title="BRIEFINGS CONTROLLED" text="Command roles publish player briefings."/>}/><Route path="/activity" element={<ActivityFeed clan={clan} user={user} data={data}/>}/><Route path="/command-room" element={<CommandRoom clan={clan} user={user} data={data}/>}/><Route path="/wiki" element={<Wiki data={data} clan={clan} user={user}/>}/><Route path="/aar" element={canCommand(clan)?<AAR data={data} setData={setData}/>:<PermissionCard clan={clan} title="AAR CONTROLLED" text="Command roles own the official after-action review."/>}/><Route path="/profile" element={<Profile user={user} clan={clan} store={store}/>}/>
   </Routes></div></main></div>
 }
 
@@ -910,48 +910,119 @@ function OperationAAR({op,setData}){const a=op.aarData||{}; function upd(p){setD
 
 function Input({label,value,onChange,placeholder}){return <label className="field"><span>{label}</span><input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}/></label>}
 
-function Calendar({data,setData}){
-  function add(){
-    const title=prompt('Event title?');
-    if(!title)return;
-    setData(d=>({...d,events:[...d.events,{id:crypto.randomUUID?.()||Math.random(),date:new Date().toISOString().slice(0,10),time:'20:00',title,type:'EVENT',meta:'Clan',status:'open',attendance:'0/0'}]}));
+function Calendar({data,setData,clan}){
+  const command=canCommand(clan);
+  const [events,setEvents]=useState([]);
+  const [operations,setOperations]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  const [editing,setEditing]=useState(null);
+  const [form,setForm]=useState({title:'',event_type:'TRAINING',date:new Date().toISOString().slice(0,10),time:'20:00',duration:'90',location:'',notes:'',operation_id:''});
+
+  async function load(){
+    if(!supabase||!clan?.id){setEvents((data.events||[]).map(e=>({id:e.id,title:e.title,event_type:e.type,starts_at:`${e.date}T${e.time}:00`,ends_at:null,location:e.meta||'',notes:'',operation_id:null})));setLoading(false);return;}
+    setLoading(true);setError('');
+    try{
+      const [{data:rows,error:e1},{data:ops,error:e2}]=await Promise.all([
+        supabase.from('events').select('id,title,event_type,starts_at,ends_at,location,notes,operation_id,created_at').eq('clan_id',clan.id).order('starts_at'),
+        supabase.from('operations').select('id,number,name,status').eq('clan_id',clan.id).order('number',{ascending:false})
+      ]);
+      if(e1)throw e1;if(e2)throw e2;
+      setEvents(rows||[]);setOperations(ops||[]);
+    }catch(e){setError(e.message||'Could not load calendar.');}
+    finally{setLoading(false)}
   }
+  useEffect(()=>{load()},[clan?.id]);
+
+  function reset(){
+    setEditing(null);
+    setForm({title:'',event_type:'TRAINING',date:new Date().toISOString().slice(0,10),time:'20:00',duration:'90',location:'',notes:'',operation_id:''});
+  }
+  function startEdit(e){
+    const start=new Date(e.starts_at);
+    const end=e.ends_at?new Date(e.ends_at):new Date(start.getTime()+90*60000);
+    setEditing(e.id);
+    setForm({
+      title:e.title||'',
+      event_type:e.event_type||'EVENT',
+      date:isNaN(start)?new Date().toISOString().slice(0,10):start.toISOString().slice(0,10),
+      time:isNaN(start)?'20:00':start.toISOString().slice(11,16),
+      duration:String(Math.max(30,Math.round((end-start)/60000))),
+      location:e.location||'',
+      notes:e.notes||'',
+      operation_id:e.operation_id||''
+    });
+  }
+  async function save(e){
+    e?.preventDefault();
+    if(!command||!supabase||!clan?.id)return;
+    if(!form.title.trim()){setError('Event title is required.');return;}
+    setBusy(true);setError('');
+    try{
+      const start=new Date(`${form.date}T${form.time}:00`);
+      const end=new Date(start.getTime()+(Number(form.duration)||90)*60000);
+      const payload={clan_id:clan.id,title:form.title.trim(),event_type:form.event_type,starts_at:start.toISOString(),ends_at:end.toISOString(),location:form.location.trim()||null,notes:form.notes.trim()||null,operation_id:form.operation_id||null,created_by:user?.id||clan?.user_id};
+      if(editing){
+        const {error:e1}=await supabase.from('events').update({title:payload.title,event_type:payload.event_type,starts_at:payload.starts_at,ends_at:payload.ends_at,location:payload.location,notes:payload.notes,operation_id:payload.operation_id}).eq('id',editing).eq('clan_id',clan.id);
+        if(e1)throw e1;
+      }else{
+        const {error:e1}=await supabase.from('events').insert(payload);
+        if(e1)throw e1;
+      }
+      await logActivity(clan.id,editing?'calendar_event_updated':'calendar_event_created',editing?'Calendar event updated':'Calendar event created',payload.title,null,null,{event_type:payload.event_type});
+      reset();await load();
+    }catch(err){setError(err.message||'Could not save event.');}
+    finally{setBusy(false)}
+  }
+  async function remove(id){
+    if(!command||!supabase||!clan?.id)return;
+    if(!window.confirm('Delete this calendar event?'))return;
+    setBusy(true);setError('');
+    try{const {error:e}=await supabase.from('events').delete().eq('id',id).eq('clan_id',clan.id);if(e)throw e;await load();}catch(e){setError(e.message||'Could not delete event.')}finally{setBusy(false)}
+  }
+
   return <>
-    <PageHead eyebrow="SCHEDULE" title="CLAN CALENDAR" subtitle="MATCHES · TRAINING · EVENTS" actions={<button className="btn primary" onClick={add}><Plus size={15}/> ADD EVENT</button>}/>
+    <PageHead eyebrow="SCHEDULE" title="CLAN CALENDAR" subtitle="MATCHES · TRAINING · EVENTS" actions={command?<button className="btn primary" onClick={reset}><Plus size={15}/> NEW EVENT</button>:<Tag tone="yellow">READ ONLY</Tag>}/>
+    {error&&<div className="error section">{error}</div>}
+    {command&&<div className="card form section">
+      <div className="section-head"><div><h3>{editing?'Edit event':'Create event'}</h3><span>CLAN SCHEDULE</span></div>{editing&&<button className="btn" onClick={reset}>CANCEL</button>}</div>
+      <form onSubmit={save} className="stack">
+        <div className="form-grid">
+          <label className="field"><span>TITLE</span><input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Garrison Workshop" required/></label>
+          <label className="field"><span>TYPE</span><select value={form.event_type} onChange={e=>setForm(f=>({...f,event_type:e.target.value}))}><option>MATCH</option><option>TRAINING</option><option>EVENT</option></select></label>
+          <label className="field"><span>DATE</span><input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} required/></label>
+          <label className="field"><span>TIME</span><input type="time" value={form.time} onChange={e=>setForm(f=>({...f,time:e.target.value}))} required/></label>
+          <label className="field"><span>DURATION (MIN)</span><input type="number" min="30" step="15" value={form.duration} onChange={e=>setForm(f=>({...f,duration:e.target.value}))}/></label>
+          <label className="field"><span>LOCATION</span><input value={form.location} onChange={e=>setForm(f=>({...f,location:e.target.value}))} placeholder="Discord / Training server"/></label>
+          <label className="field"><span>LINK OPERATION</span><select value={form.operation_id} onChange={e=>setForm(f=>({...f,operation_id:e.target.value}))}><option value="">— NONE —</option>{operations.map(o=><option key={o.id} value={o.id}>#{o.number} · {o.name}</option>)}</select></label>
+          <label className="field"><span>NOTES</span><input value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Brief details"/></label>
+        </div>
+        <div className="actions"><button className="btn primary" disabled={busy}>{busy?'SAVING…':editing?'UPDATE EVENT':'CREATE EVENT'}</button></div>
+      </form>
+    </div>}
     <div className="calendar">
       <div className="weekhead">{['MON','TUE','WED','THU','FRI','SAT','SUN'].map(d=><div key={d}>{d}</div>)}</div>
       <div className="calendar-grid">
-        {data.events.map(e=>(
-          <div className="event card" key={e.id}>
-            <div className="event-date">{e.date.slice(5)} · {e.time}</div>
-            <b>{e.title}</b>
-            <small>{e.meta}</small>
-            <div><Tag tone={e.type==='MATCH'?'red':'yellow'}>{e.type}</Tag> <Tag tone={e.status==='ready'?'green':''}>{e.attendance}</Tag></div>
-          </div>
-        ))}
+        {events.map(e=>{const d=new Date(e.starts_at);const linked=operations.find(o=>o.id===e.operation_id);return <div className="event card" key={e.id}>
+          <div className="event-date">{isNaN(d)?'—':d.toISOString().slice(5,10)} · {isNaN(d)?'—':d.toISOString().slice(11,16)}</div>
+          <b>{e.title}</b><small>{e.location||e.notes||linked?e.location||e.notes||`Operation #${linked?.number}`: 'Clan event'}</small>
+          <div><Tag tone={e.event_type==='MATCH'?'red':'yellow'}>{e.event_type}</Tag>{linked&&<Tag tone={linked.status==='ready'||linked.status==='active'?'green':''}>OP #{linked.number}</Tag>}</div>
+          {command&&<div className="actions"><button className="btn mini-action" onClick={()=>startEdit(e)}>EDIT</button><button className="btn mini-action" onClick={()=>remove(e.id)} disabled={busy}>DELETE</button></div>}
+        </div>})}
       </div>
     </div>
     <div className="card section">
-      <div className="section-head"><h3>Upcoming events</h3></div>
-      <table className="table">
-        <thead><tr><th>DATE</th><th>EVENT</th><th>TYPE</th><th>ATTENDANCE</th><th>STATUS</th></tr></thead>
-        <tbody>
-          {data.events.map(e=>(
-            <tr key={e.id}>
-              <td>{e.date} · {e.time}</td>
-              <td><b>{e.title}</b><small>{e.meta}</small></td>
-              <td><Tag tone={e.type==='MATCH'?'red':'yellow'}>{e.type}</Tag></td>
-              <td>{e.attendance}</td>
-              <td><Tag tone={e.status==='ready'?'green':''}>{e.status.toUpperCase()}</Tag></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="section-head"><h3>Upcoming events</h3><span>{loading?'LOADING…':`${events.length} EVENTS`}</span></div>
+      <div className="table-scroll"><table className="table"><thead><tr><th>DATE</th><th>EVENT</th><th>TYPE</th><th>LINK</th><th>ACTION</th></tr></thead><tbody>
+        {events.map(e=>{const d=new Date(e.starts_at);const linked=operations.find(o=>o.id===e.operation_id);return <tr key={e.id}><td>{isNaN(d)?'—':`${d.toISOString().slice(0,10)} · ${d.toISOString().slice(11,16)}`}</td><td><b>{e.title}</b><small>{e.location||e.notes||''}</small></td><td><Tag tone={e.event_type==='MATCH'?'red':'yellow'}>{e.event_type}</Tag></td><td>{linked?<b>#{linked.number}</b>:<span className="muted">CLAN</span>}</td><td>{command?<div className="button-row"><button className="btn mini-action" onClick={()=>startEdit(e)}>EDIT</button><button className="btn mini-action" onClick={()=>remove(e.id)} disabled={busy}>DELETE</button></div>:<span className="muted">READ ONLY</span>}</td></tr>})}
+        {!events.length&&!loading&&<tr><td colSpan="5"><div className="empty-state">No calendar events yet.</div></td></tr>}
+      </tbody></table></div>
     </div>
   </>;
 }
 
-function Roster({data,setData,embedded=false}){
+function Roster({data,setData,embedded=false}){function Roster({data,setData,embedded=false}){
   const [filter,setFilter]=useState('');
   const [newName,setNewName]=useState('');
   const filtered=data.players.filter(p=>`${p.name} ${p.squad} ${p.role}`.toLowerCase().includes(filter.toLowerCase()));
@@ -1228,11 +1299,19 @@ function SquadHub({clan,user}){
   </>;
 }
 
-function Strategy({data,setData,embedded=false}){const [local,setLocal]=useState(data.strategy); useEffect(()=>setLocal(data.strategy),[data.strategy]); function save(){setData(d=>({...d,strategy:local}));alert('Strategy saved to local command database.')} return <div className={embedded?'embedded':''}>{!embedded&&<PageHead eyebrow="OPERATION 042" title="STRATEGY BUILDER" subtitle="COMMANDER'S INTENT → PHASES → TASKS" actions={<button className="btn primary" onClick={save}><Save size={15}/> SAVE STRATEGY</button>}/>}<div className="grid g2"><div className="card form"><div className="form-grid"><Input label="OPERATION NAME" value={local.name} onChange={v=>setLocal(x=>({...x,name:v}))}/><Input label="COMMANDER'S INTENT" value={local.intent} onChange={v=>setLocal(x=>({...x,intent:v}))}/></div><label className="field"><span>GLOBAL ORDERS</span><textarea value={local.orders} onChange={e=>setLocal(x=>({...x,orders:e.target.value}))}/></label><div className="callout"><Target size={15}/> Every phase should map to a stage map and at least one squad task.</div></div><div className="card"><div className="section-head"><h3>Battle phases</h3><span>4 PHASES</span></div><div className="side-list">{[['01 — SETUP','Garrisons, nodes, defensive positions','green'],['02 — CONTACT','Absorb first push, identify armor','green'],['03 — ROTATE','Shift Bravo north on center pressure','yellow'],['04 — FINAL','Fallback network, counterattack on call','']].map(([a,b,t])=><div className="row" key={a}><div><b>{a}</b><small>{b}</small></div><Tag tone={t}>{t==='green'?'READY':t==='yellow'?'DRAFT':'DRAFT'}</Tag></div>)}</div></div></div><div className="card section"><div className="section-head"><h3>Squad tasks</h3><span>LINKED TO PHASES</span></div><table className="table"><thead><tr><th>SQUAD</th><th>PRIMARY TASK</th><th>PHASE</th><th>DEPENDENCY</th></tr></thead><tbody><tr><td><b>ALPHA</b></td><td>Own western sector; protect G1</td><td>01–02</td><td>Supply + fallback</td></tr><tr><td><b>BRAVO</b></td><td>Center line + armor reserve</td><td>01–04</td><td>Commander release</td></tr><tr><td><b>CHARLIE</b></td><td>Southern fallback / counterattack</td><td>02–04</td><td>G2 integrity</td></tr><tr><td><b>DELTA</b></td><td>Recon + arty coordination</td><td>01–03</td><td>Grid reporting</td></tr></tbody></table></div></div>}
+function Strategy({data,setData}){
+  const op=useMemo(()=>data.ops.find(o=>o.status==='active')||data.ops.find(o=>o.status==='ready')||data.ops.find(o=>o.status==='draft')||data.ops[0], [data.ops]);
+  if(!op) return <><PageHead eyebrow="OPERATIONS" title="STRATEGY" subtitle="NO OPERATION AVAILABLE"/><div className="card section empty-state">Create an operation first.</div></>;
+  return <OperationStrategy op={op} setData={setData}/>;
+}
 
-function Maps({embedded=false}){return <div className={embedded?'embedded':''}>{!embedded&&<PageHead eyebrow="TACTICAL PLANNING" title="STAGE MAP EDITOR" subtitle="01 SETUP · 02 CONTACT · 03 ROTATE · 04 FINAL" actions={<><button className="btn" onClick={()=>alert('Marker tool active — click the map to place a marker.')}><Plus size={15}/> ADD MARKER</button><button className="btn primary" onClick={()=>alert('Map saved locally.') }><Save size={15}/> SAVE MAP</button></>}/>}<div className="tabs"><button className="active">01 SETUP</button><button>02 CONTACT</button><button>03 ROTATE</button><button>04 FINAL</button></div><div className="card map-wrap"><TacticalMap editor/></div><div className="grid g3 section"><div className="card stat"><div className="k">FRIENDLY PLACEMENTS</div><div className="v">17</div><div className="s">6 GARRISON / 5 SQUADS / 6 OTHER</div></div><div className="card stat"><div className="k">ROUTES</div><div className="v">8</div><div className="s">3 ATTACK · 5 SUPPORT</div></div><div className="card stat"><div className="k">OBJECTIVES</div><div className="v">4</div><div className="s">2 PRIMARY · 2 FALLBACK</div></div></div></div>}
+function Maps({data,setData}){
+  const op=useMemo(()=>data.ops.find(o=>o.status==='active')||data.ops.find(o=>o.status==='ready')||data.ops.find(o=>o.status==='draft')||data.ops[0], [data.ops]);
+  if(!op) return <><PageHead eyebrow="OPERATIONS" title="STAGE MAPS" subtitle="NO OPERATION AVAILABLE"/><div className="card section empty-state">Create an operation first.</div></>;
+  return <OperationStageMaps op={op} setData={setData}/>;
+}
 
-function TacticalMap({compact=false,editor=false}){const [markers,setMarkers]=useState([{x:18,y:34,label:'G1',tone:'green'},{x:26,y:48,label:'E1',tone:'red'},{x:70,y:62,label:'O1',tone:'yellow'},{x:77,y:49,label:'M1',tone:'blue'},{x:51,y:70,label:'G2',tone:'green'}]); const [drag,setDrag]=useState(null); function moveMarker(i,e){const rect=e.currentTarget.getBoundingClientRect(); const x=Math.max(2,Math.min(96,((e.clientX-rect.left)/rect.width)*100)); const y=Math.max(2,Math.min(96,((e.clientY-rect.top)/rect.height)*100));setMarkers(m=>m.map((a,n)=>n===i?{...a,x,y}:a))} return <div className={`tactical-map ${compact?'compact':''}`} onPointerMove={e=>{if(drag!=null)moveMarker(drag,e)}} onPointerUp={()=>setDrag(null)}><div className="grid-overlay"/><div className="zone friendly"/><div className="zone contested"/><div className="zone rear"/><div className="river"/><div className="road road-a"/><div className="road road-b"/><div className="route route-a"/><div className="route route-b"/>{markers.map((m,i)=><div key={i} className={`marker ${m.tone}`} style={{left:`${m.x}%`,top:`${m.y}%`}} onPointerDown={()=>setDrag(i)}>{m.label}</div>)}{editor&&<div className="map-tools"><button><ArrowUpRight size={14}/></button><button><X size={14}/></button><button><Settings size={14}/></button><button><Save size={14}/></button></div>}<div className="legend"><span><i className="lg friend"/>FRIENDLY</span><span><i className="lg enemy"/>ENEMY</span><span><i className="lg obj"/>OBJECTIVE</span><span><i className="lg sup"/>SUPPORT</span></div><div className="map-grid-label">GRID // 042-A · CARANTAN</div></div>}
+function TacticalMap({compact=false,editor=false}){function TacticalMap({compact=false,editor=false}){const [markers,setMarkers]=useState([{x:18,y:34,label:'G1',tone:'green'},{x:26,y:48,label:'E1',tone:'red'},{x:70,y:62,label:'O1',tone:'yellow'},{x:77,y:49,label:'M1',tone:'blue'},{x:51,y:70,label:'G2',tone:'green'}]); const [drag,setDrag]=useState(null); function moveMarker(i,e){const rect=e.currentTarget.getBoundingClientRect(); const x=Math.max(2,Math.min(96,((e.clientX-rect.left)/rect.width)*100)); const y=Math.max(2,Math.min(96,((e.clientY-rect.top)/rect.height)*100));setMarkers(m=>m.map((a,n)=>n===i?{...a,x,y}:a))} return <div className={`tactical-map ${compact?'compact':''}`} onPointerMove={e=>{if(drag!=null)moveMarker(drag,e)}} onPointerUp={()=>setDrag(null)}><div className="grid-overlay"/><div className="zone friendly"/><div className="zone contested"/><div className="zone rear"/><div className="river"/><div className="road road-a"/><div className="road road-b"/><div className="route route-a"/><div className="route route-b"/>{markers.map((m,i)=><div key={i} className={`marker ${m.tone}`} style={{left:`${m.x}%`,top:`${m.y}%`}} onPointerDown={()=>setDrag(i)}>{m.label}</div>)}{editor&&<div className="map-tools"><button><ArrowUpRight size={14}/></button><button><X size={14}/></button><button><Settings size={14}/></button><button><Save size={14}/></button></div>}<div className="legend"><span><i className="lg friend"/>FRIENDLY</span><span><i className="lg enemy"/>ENEMY</span><span><i className="lg obj"/>OBJECTIVE</span><span><i className="lg sup"/>SUPPORT</span></div><div className="map-grid-label">GRID // 042-A · CARANTAN</div></div>}
 
 function Briefings({data,setData,embedded=false}){
   const op=useMemo(()=>data.ops.find(o=>o.status==='active')||data.ops[0],[data.ops]);
@@ -1292,9 +1371,78 @@ function Briefings({data,setData,embedded=false}){
   </div>
 }
 
-function Wiki({data,setData}){const [q,setQ]=useState(''); const [title,setTitle]=useState(''); const filtered=data.wiki.filter(r=>r.join(' ').toLowerCase().includes(q.toLowerCase())); function add(){if(!title.trim())return;setData(d=>({...d,wiki:[[title.trim(),'SOP',new Date().toISOString().slice(0,10),'Command'],...d.wiki]}));setTitle('')}return <><PageHead eyebrow="KNOWLEDGE BASE" title="CLAN WIKI" subtitle="REUSABLE MAPS · SOPs · TACTICS" actions={<button className="btn primary" onClick={add}><Plus size={15}/> NEW ARTICLE</button>}/><div className="grid g3"><Stat label="MAP PLAYBOOKS" value="12" sub="4 UPDATED THIS MONTH"/><Stat label="SOPs" value="27" sub="COMMAND / INF / ARMOR"/><Stat label="TACTICAL NOTES" value="83" sub="SEARCHABLE"/></div><div className="card section"><div className="toolbar"><div className="search"><Search size={14}/><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search knowledge base…"/></div><div className="add-inline"><input value={title} onChange={e=>setTitle(e.target.value)} placeholder="New article title"/><button className="btn" onClick={add}><Plus size={14}/></button></div></div><table className="table"><thead><tr><th>ARTICLE</th><th>CATEGORY</th><th>UPDATED</th><th>OWNER</th></tr></thead><tbody>{filtered.map((r,i)=><tr key={i}><td><b>{r[0]}</b></td><td><Tag>{r[1]}</Tag></td><td>{r[2]}</td><td>{r[3]}</td></tr>)}</tbody></table></div></>}
+function Wiki({data,clan,user}){
+  const command=canCommand(clan);
+  const [articles,setArticles]=useState([]);
+  const [q,setQ]=useState('');
+  const [loading,setLoading]=useState(true);
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  const [selected,setSelected]=useState(null);
+  const [form,setForm]=useState({title:'',category:'SOP',body:'',tags:''});
 
-function AAR({data,setData,embedded=false}){const [local,setLocal]=useState(data.aar);function save(){setData(d=>({...d,aar:local}));alert('AAR saved.');}return <div className={embedded?'embedded':''}>{!embedded&&<PageHead eyebrow="POST-MATCH" title="AFTER ACTION REVIEW" subtitle="CAPTURE LESSONS → IMPROVE THE NEXT OPERATION" actions={<button className="btn primary" onClick={save}><Save size={15}/> SAVE AAR</button>}/>}<div className="grid g4"><Stat label="RESULT" value={local.result} sub={local.score} trend/><Stat label="ATTENDANCE" value="24/25" sub="96%"/><Stat label="GARRISON SCORE" value="8/10" sub="GOOD"/><Stat label="COMMS" value="7/10" sub="IMPROVE"/></div><div className="grid g2 section"><div className="card form"><label className="field"><span>WHAT WORKED?</span><textarea value={local.worked} onChange={e=>setLocal(x=>({...x,worked:e.target.value}))}/></label><label className="field"><span>WHAT FAILED?</span><textarea value={local.failed} onChange={e=>setLocal(x=>({...x,failed:e.target.value}))}/></label></div><div className="card"><div className="section-head"><h3>Squad evaluation</h3></div><table className="table"><tbody>{[['Alpha','9/10','EXCELLENT','green'],['Bravo','7/10','ROTATION','yellow'],['Charlie','8/10','SOLID','green'],['Delta','6/10','COMMS','red']].map(([a,b,c,t])=><tr key={a}><td>{a}</td><td>{b}</td><td><Tag tone={t}>{c}</Tag></td></tr>)}</tbody></table></div></div></div>}
+  async function load(){
+    if(!supabase||!clan?.id){setArticles([]);setLoading(false);return;}
+    setLoading(true);setError('');
+    try{const {data:rows,error:e}=await supabase.from('wiki_articles').select('id,title,category,body,tags,owner_id,created_at,updated_at').eq('clan_id',clan.id).order('updated_at',{ascending:false});if(e)throw e;setArticles(rows||[]);}
+    catch(e){setError(e.message||'Could not load clan wiki.')}finally{setLoading(false)}
+  }
+  useEffect(()=>{load()},[clan?.id]);
+
+  const filtered=articles.filter(a=>`${a.title} ${a.category} ${a.body} ${(a.tags||[]).join(' ')}`.toLowerCase().includes(q.toLowerCase()));
+  const stats={map:articles.filter(a=>a.category==='MAP').length,sop:articles.filter(a=>a.category==='SOP').length,tactical:articles.filter(a=>['TACTICAL','RECON','ARMOR'].includes(a.category)).length};
+
+  function openArticle(a){
+    setSelected(a?.id||null);
+    setForm({title:a?.title||'',category:a?.category||'SOP',body:a?.body||'',tags:(a?.tags||[]).join(', ')});
+  }
+  async function save(e){
+    e?.preventDefault();
+    if(!command||!supabase||!clan?.id)return;
+    if(!form.title.trim()||!form.body.trim()){setError('Title and body are required.');return;}
+    setBusy(true);setError('');
+    try{
+      const tags=form.tags.split(',').map(x=>x.trim()).filter(Boolean);
+      const payload={title:form.title.trim(),category:form.category,body:form.body.trim(),tags,owner_id:user?.id,updated_at:new Date().toISOString()};
+      if(selected){const {error:e1}=await supabase.from('wiki_articles').update(payload).eq('id',selected).eq('clan_id',clan.id);if(e1)throw e1;}
+      else{const {error:e1}=await supabase.from('wiki_articles').insert({clan_id:clan.id,...payload,created_at:new Date().toISOString()});if(e1)throw e1;}
+      await load();openArticle(null);
+    }catch(e){setError(e.message||'Could not save article.')}finally{setBusy(false)}
+  }
+  async function remove(id){
+    if(!command||!supabase||!clan?.id||!window.confirm('Delete this wiki article?'))return;
+    setBusy(true);setError('');
+    try{const {error:e}=await supabase.from('wiki_articles').delete().eq('id',id).eq('clan_id',clan.id);if(e)throw e; if(selected===id)openArticle(null);await load();}catch(e){setError(e.message||'Could not delete article.')}finally{setBusy(false)}
+  }
+
+  return <>
+    <PageHead eyebrow="KNOWLEDGE BASE" title="CLAN WIKI" subtitle="REUSABLE MAPS · SOPS · TACTICS" actions={command?<button className="btn primary" onClick={()=>openArticle(null)}><Plus size={15}/> NEW ARTICLE</button>:<Tag tone="yellow">READ ONLY</Tag>}/>
+    {error&&<div className="error section">{error}</div>}
+    <div className="grid g3"><Stat label="MAP PLAYBOOKS" value={stats.map} sub="PUBLISHED ARTICLES"/><Stat label="SOPS" value={stats.sop} sub="STANDARD PROCEDURES"/><Stat label="TACTICAL NOTES" value={stats.tactical} sub="TACTICAL / RECON / ARMOR"/></div>
+    <div className="grid g2 section">
+      <div className="card section"><div className="toolbar"><div className="search"><Search size={14}/><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search knowledge base…"/></div></div>
+        <div className="side-list">{filtered.map(a=><button key={a.id} className="row row-button" onClick={()=>openArticle(a)}><div><b>{a.title}</b><small>{a.category} · {new Date(a.updated_at).toISOString().slice(0,10)}</small></div><Tag>{a.tags?.[0]||'ARTICLE'}</Tag></button>)}{!filtered.length&&!loading&&<div className="empty-state">No articles match this search.</div>}</div>
+      </div>
+      <div className="card form">
+        <div className="section-head"><div><h3>{selected?'Edit article':'Article editor'}</h3><span>{selected?'UPDATE EXISTING':'CREATE NEW'}</span></div>{selected&&<button className="btn" onClick={()=>openArticle(null)}>NEW</button>}</div>
+        {command?<form onSubmit={save} className="stack">
+          <label className="field"><span>TITLE</span><input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Garrison Discipline SOP"/></label>
+          <label className="field"><span>CATEGORY</span><select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))}><option>SOP</option><option>MAP</option><option>TACTICAL</option><option>RECON</option><option>ARMOR</option></select></label>
+          <label className="field"><span>TAGS</span><input value={form.tags} onChange={e=>setForm(f=>({...f,tags:e.target.value}))} placeholder="carentan, defense, garrison"/></label>
+          <label className="field"><span>ARTICLE</span><textarea value={form.body} onChange={e=>setForm(f=>({...f,body:e.target.value}))} placeholder="Write the reusable doctrine, SOP or tactical note…"/></label>
+          <div className="actions"><button className="btn primary" disabled={busy}>{busy?'SAVING…':selected?'SAVE ARTICLE':'PUBLISH ARTICLE'}</button>{selected&&<button type="button" className="btn" onClick={()=>remove(selected)} disabled={busy}>DELETE</button>}</div>
+        </form>:<div className="empty-state"><h3>Clan knowledge base</h3><p className="muted">Members can read published doctrine. Command roles manage the content.</p></div>}
+      </div>
+    </div>
+    <div className="card section"><div className="section-head"><h3>Article index</h3><span>{articles.length} TOTAL</span></div><div className="table-scroll"><table className="table"><thead><tr><th>ARTICLE</th><th>CATEGORY</th><th>TAGS</th><th>UPDATED</th><th>OWNER</th></tr></thead><tbody>{filtered.map(a=><tr key={a.id} className="clickrow" onClick={()=>openArticle(a)}><td><b>{a.title}</b></td><td><Tag>{a.category}</Tag></td><td>{(a.tags||[]).join(' · ')||'—'}</td><td>{new Date(a.updated_at).toISOString().slice(0,10)}</td><td>{data.players.find(p=>p.memberUserId===a.owner_id)?.name||'Command'}</td></tr>)}{!filtered.length&&!loading&&<tr><td colSpan="5"><div className="empty-state">No articles yet.</div></td></tr>}</tbody></table></div></div>
+  </>;
+}
+
+function AAR({data,setData}){
+  const op=useMemo(()=>[...data.ops].sort((a,b)=>Number(b.id)-Number(a.id)).find(o=>o.status==='archived')||data.ops.find(o=>o.status==='active')||data.ops.find(o=>o.status==='ready')||data.ops[0],[data.ops]);
+  if(!op) return <><PageHead eyebrow="POST-MATCH" title="AFTER ACTION REVIEW" subtitle="NO OPERATION AVAILABLE"/><div className="card section empty-state">Create an operation first.</div></>;
+  return <OperationAAR op={op} setData={setData}/>;
+}
 
 const root = createRoot(document.getElementById('root'));
 root.render(
