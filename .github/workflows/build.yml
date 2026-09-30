@@ -18,5 +18,9 @@ jobs:
           node-version: '20.19.0'
       - name: Install dependencies
         run: npm install
+      - name: Parse JSX syntax
+        run: |
+          npm install --no-save @babel/parser
+          node --input-type=module -e "import fs from 'node:fs'; import {parse} from '@babel/parser'; parse(fs.readFileSync('src/main.jsx','utf8'), {sourceType:'module', plugins:['jsx']}); console.log('Babel JSX parse passed');"
       - name: Build production bundle
         run: npm run build
