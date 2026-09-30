@@ -251,6 +251,14 @@ function useClanStore(user){
   },[user?.id]);
 
   useEffect(()=>{
+    if(!supabase || !clan?.id || !user?.id || loading || !hydrated) return;
+    const touch=()=>{supabase.from('clan_members').update({last_seen_at:new Date().toISOString()}).eq('clan_id',clan.id).eq('user_id',user.id).then(()=>{});};
+    touch();
+    const t=setInterval(touch,300000);
+    return ()=>clearInterval(t);
+  },[clan?.id,user?.id,loading,hydrated]);
+
+  useEffect(()=>{
     if(!clan || loading || !hydrated) return;
     const timer=setTimeout(async()=>{
       if(!supabase){localStorage.setItem('hll-command-data',JSON.stringify(data));return;}
@@ -872,7 +880,7 @@ function OperationSquads({op,data,setData,clan}){
                 {manage ? <input className="squad-name-input" value={s.name} onChange={e=>renameSquad(s.id,e.target.value)}/> : <b>{s.name}</b>}
                 <Tag tone="green">{members.length}</Tag>
               </div>
-              <select value={s.lead||''} onChange={e=>setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?{...x,squads:(x.squads||[]).map(q=>q.id===s.id?{...q,lead:e.target.value}:q)}:x)}))}>
+              <select value={s.lead||''} disabled={!manage} onChange={e=>setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?{...x,squads:(x.squads||[]).map(q=>q.id===s.id?{...q,lead:e.target.value}:q)}:x)}))}>
                 <option value="">Squad Lead — unassigned</option>
                 {members.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
               </select>
@@ -1080,7 +1088,7 @@ function Members({clan,user,data,setClan}){
   const [members,setMembers]=useState([]); const [loading,setLoading]=useState(true); const [error,setError]=useState(''); const [copied,setCopied]=useState(false); const [query,setQuery]=useState(''); const [statusFilter,setStatusFilter]=useState('active'); const [busyId,setBusyId]=useState('');
   const load=async()=>{
     if(!supabase||!clan?.id){setMembers((data.players||[]).map(p=>({id:p.id,callsign:p.name,role:p.role,user_id:p.memberUserId,active:true,primary_role:p.role})));setLoading(false);return;}
-    setLoading(true); const {data:rows,error:e}=await supabase.from('clan_members').select('id,user_id,callsign,primary_role,role,active,membership_status,created_at').eq('clan_id',clan.id).order('created_at',{ascending:true}); setMembers(rows||[]); setError(e?.message||''); setLoading(false);
+    setLoading(true); const {data:rows,error:e}=await supabase.from('clan_members').select('id,user_id,callsign,primary_role,role,active,membership_status,last_seen_at,created_at').eq('clan_id',clan.id).order('created_at',{ascending:true}); setMembers(rows||[]); setError(e?.message||''); setLoading(false);
   };
   useEffect(()=>{let live=true;(async()=>{await load();})();return()=>{live=false}},[clan?.id,data.players.length]);
   const admin=canManageMembers(clan);
@@ -1120,15 +1128,15 @@ function Members({clan,user,data,setClan}){
     <div className="card section">
       <div className="toolbar member-toolbar"><div className="search"><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search callsign or role…"/></div><div className="member-filters"><button className={statusFilter==='active'?'active':''} onClick={()=>setStatusFilter('active')}>ACTIVE</button><button className={statusFilter==='pending'?'active':''} onClick={()=>setStatusFilter('pending')}>PENDING</button><button className={statusFilter==='inactive'?'active':''} onClick={()=>setStatusFilter('inactive')}>INACTIVE</button><button className={statusFilter==='all'?'active':''} onClick={()=>setStatusFilter('all')}>ALL</button></div></div>
       <div className="section-head"><div><h3>Member roster</h3><small>{loading?'LOADING…':`${filtered.length} MATCHING MEMBERS`}</small></div><span>LIVE FROM SUPABASE</span></div>
-      <div className="table-scroll"><table className="table"><thead><tr><th>CALLSIGN</th><th>PRIMARY ROLE</th><th>ACCESS ROLE</th><th>STATUS</th><th>ACTIONS</th></tr></thead><tbody>
+      <div className="table-scroll"><table className="table"><thead><tr><th>CALLSIGN</th><th>PRIMARY ROLE</th><th>ACCESS ROLE</th><th>LAST SEEN</th><th>STATUS</th><th>ACTIONS</th></tr></thead><tbody>
       {filtered.map(m=><tr key={m.id} className={!m.active?'member-inactive':''}>
         <td><Link className="member-cell member-link" to={`/members/${m.id}`}><div className="avatar sm">{(m.callsign||'P').slice(0,1).toUpperCase()}</div><div><b>{m.callsign||'Unnamed player'}</b><small>{m.user_id===user?.id?'YOU':(m.user_id||'').slice(0,8)}</small></div></Link></td>
         <td><span>{m.primary_role||'RIFLEMAN'}</span></td>
         <td>{admin?<select value={m.role||'player'} onChange={e=>updateRole(m.id,e.target.value)} disabled={busyId===m.id || (m.user_id===user?.id&&m.role==='commander')}>{(m.user_id===user?.id&&m.role==='commander'?['commander']:['co','squad_lead','player','recruit']).map(r=><option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</select>:<Tag tone={m.role==='commander'?'green':m.role==='squad_lead'?'yellow':''}>{ROLE_LABELS[m.role]||'PLAYER'}</Tag>}</td>
-        <td><Tag tone={m.membership_status==='active'?'green':m.membership_status==='pending'?'yellow':'red'}>{(m.membership_status|| (m.active?'active':'inactive')).toUpperCase()}</Tag></td>
+        <td>{m.last_seen_at?(()=>{const mins=Math.max(0,Math.floor((Date.now()-new Date(m.last_seen_at).getTime())/60000));return mins<5?<Tag tone="green">NOW</Tag>:mins<60?<span>{mins}m AGO</span>:<span>{new Date(m.last_seen_at).toLocaleDateString()}</span>})():<span className="muted">—</span>}</td><td><Tag tone={m.membership_status==='active'?'green':m.membership_status==='pending'?'yellow':'red'}>{(m.membership_status|| (m.active?'active':'inactive')).toUpperCase()}</Tag></td>
         <td>{admin&&m.user_id!==user?.id?(m.membership_status==='pending'?<div className="button-row"><button className="btn mini-action primary" onClick={()=>approveMember(m.id)} disabled={busyId===m.id}>APPROVE</button><button className="btn mini-action" onClick={()=>rejectMember(m.id)} disabled={busyId===m.id}>REJECT</button></div>:<button className="btn mini-action" onClick={()=>toggleActive(m.id)} disabled={busyId===m.id}>{busyId===m.id?'SAVING…':m.active?'DEACTIVATE':'REACTIVATE'}</button>):<span className="muted">—</span>}</td>
       </tr>)}
-      {!filtered.length&&!loading&&<tr><td colSpan="5"><div className="empty-state"><h3>No members found</h3><p className="muted">Try another search or status filter.</p></div></td></tr>}
+      {!filtered.length&&!loading&&<tr><td colSpan="6"><div className="empty-state"><h3>No members found</h3><p className="muted">Try another search or status filter.</p></div></td></tr>}
       </tbody></table></div>
     </div>
   </>
@@ -1326,8 +1334,8 @@ function SquadHub({clan,user}){
     <div className="grid g2 section">
       {squads.map(s=>{const squadMembers=assignments.filter(a=>a.squad_id===s.id).map(a=>memberByUser[a.user_id]).filter(Boolean); const lead=memberByUser[s.squad_lead_id]; return <div className="card" key={s.id}>
         <div className="section-head"><div><h3>{s.name.toUpperCase()} <small>/{s.short_code}</small></h3><span>{squadMembers.length} MEMBERS</span></div>{command&&<div className="button-row"><button className="btn mini-action" onClick={()=>editSquad(s)} disabled={busy}>EDIT</button><button className="btn mini-action" onClick={()=>deleteSquad(s)} disabled={busy}>DELETE</button></div>}</div>
-        <div className="field"><span>SQUAD LEAD</span>{command?<select value={s.squad_lead_id||''} onChange={e=>setLead(s.id,e.target.value)} disabled={busy}><option value="">— UNASSIGNED —</option>{members.filter(m=>m.role==='squad_lead'||m.role==='commander'||m.role==='co').map(m=><option key={m.user_id} value={m.user_id}>{m.callsign||m.user_id.slice(0,8)}</option>)}</select>:<div className="readout">{lead?.callsign||'NO SL ASSIGNED'}</div>}</div>
-        <div className="side-list">{squadMembers.length?squadMembers.map(m=><div className="row" key={m.user_id}><div><b>{m.callsign||'Unnamed player'}</b><small>{m.primary_role||'Rifleman'} · {ROLE_LABELS[m.role]||'PLAYER'}</small></div>{canManage&&<button className="btn mini-action" onClick={()=>assign(m.user_id,'')} disabled={busy}>REMOVE</button>}</div>):<div className="empty-state"><p>No members assigned to this default squad.</p></div>}</div>
+        <div className="field"><span>SQUAD LEAD</span>{command?<select value={s.squad_lead_id||''} onChange={e=>setLead(s.id,e.target.value)} disabled={busy||!command}><option value="">— UNASSIGNED —</option>{members.filter(m=>m.role==='squad_lead'||m.role==='commander'||m.role==='co').map(m=><option key={m.user_id} value={m.user_id}>{m.callsign||m.user_id.slice(0,8)}</option>)}</select>:<div className="readout">{lead?.callsign||'NO SL ASSIGNED'}</div>}</div>
+        <div className="side-list">{squadMembers.length?squadMembers.map(m=><div className="row" key={m.user_id}><div><b>{m.callsign||'Unnamed player'}</b><small>{m.primary_role||'Rifleman'} · {ROLE_LABELS[m.role]||'PLAYER'}</small></div>{command&&<button className="btn mini-action" onClick={()=>assign(m.user_id,'')} disabled={busy}>REMOVE</button>}</div>):<div className="empty-state"><p>No members assigned to this default squad.</p></div>}</div>
       </div>})}
       {!squads.length&&!loading&&<div className="card"><div className="empty-state"><h3>No squads configured</h3><p className="muted">Create Alpha, Bravo, Charlie and Delta (or your own structure) to build the clan's default roster.</p></div></div>}
     </div>
