@@ -18,9 +18,23 @@ jobs:
           node-version: '20.19.0'
       - name: Install dependencies
         run: npm install
-      - name: Parse JSX syntax
+      - name: Diagnose JSX syntax
         run: |
           npm install --no-save @babel/parser
-          node --input-type=module -e "import fs from 'node:fs'; import {parse} from '@babel/parser'; const a=parse(fs.readFileSync('src/main.jsx','utf8'), {sourceType:'module', plugins:['jsx'], errorRecovery:true}); console.log(a.errors.map(e=>({reason:e.reasonCode,line:e.loc?.line,column:e.loc?.column,message:e.message}))); if(a.errors.length) process.exit(1);"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import {parse} from '@babel/parser';
+          const s=fs.readFileSync('src/main.jsx','utf8');
+          const re=/\nfunction\s+([A-Za-z0-9_]+)\s*\(/g;
+          const hits=[]; let m;
+          while((m=re.exec(s))) hits.push({name:m[1],start:m.index+1,line:s.slice(0,m.index+1).split('\n').length});
+          for(let i=0;i<hits.length;i++){
+            const a=hits[i].start, b=i+1<hits.length?hits[i+1].start:s.length;
+            const chunk=s.slice(a,b);
+            try{parse(chunk,{sourceType:'module',plugins:['jsx']});}
+            catch(e){console.log(JSON.stringify({function:hits[i].name,line:hits[i].line,reason:e.reasonCode,message:e.message,loc:e.loc})); process.exit(1);}
+          }
+          console.log('All function declaration chunks parse independently');
+          NODE
       - name: Build production bundle
         run: npm run build
