@@ -235,7 +235,8 @@ function useClanStore(user){
       const members=(memberRows||[]).map(m=>({id:m.user_id,name:m.callsign||m.profiles?.display_name||'Player',primary_role:m.primary_role,role:m.role}));
       const cloudPlayers=buildMemberPlayers(members);
       const clanInfo={id:member.clan_id,name:member.clans?.name||'Clan',tag:member.clans?.tag||'',inviteCode:member.clans?.invite_code||'',role:member.role,callsign:member.callsign||user.user_metadata?.name||user.email?.split('@')[0]||'Player'};
-      let base={...seed,players:cloudPlayers};
+      const blankWorkspace={...seed,ops:[],events:[],players:cloudPlayers,briefings:{},wiki:[],aar:{},strategy:{name:'',intent:'',orders:''}};
+      let base=blankWorkspace;
       const canReadWorkspace=['commander','co'].includes(member.role);
       if(canReadWorkspace){
         const {data:row,error:stateError}=await supabase.from('clan_app_state').select('data').eq('clan_id',member.clan_id).maybeSingle();
@@ -287,7 +288,7 @@ function useClanStore(user){
     const {data:clanRow,error:clanError}=await supabase.from('clans').insert({name,tag,created_by:user.id}).select().single(); if(clanError) throw clanError;
     const callsign=user.user_metadata?.name||user.email?.split('@')[0]||'Player';
     const {error:memberError}=await supabase.from('clan_members').insert({clan_id:clanRow.id,user_id:user.id,role:'commander',callsign}); if(memberError) throw memberError;
-    const empty={...seed,ops:[],events:[],players:[{id:user.id,memberUserId:user.id,name:callsign,squad:'Unassigned',role:'Commander',status:'ready'}],briefings:{},wiki:[],aar:{}};
+    const empty={...seed,ops:[],events:[],players:[{id:user.id,memberUserId:user.id,name:callsign,squad:'Unassigned',role:'Commander',status:'ready'}],briefings:{},wiki:[],aar:{},strategy:{name:'',intent:'',orders:''}};
     const {error:stateError}=await supabase.from('clan_app_state').insert({clan_id:clanRow.id,data:empty}); if(stateError) throw stateError;
     setClan({id:clanRow.id,name:clanRow.name,tag:clanRow.tag,inviteCode:clanRow.invite_code||'',role:'commander',callsign}); setData(empty); setNeedsOnboarding(false); setHydrated(true);
   }
