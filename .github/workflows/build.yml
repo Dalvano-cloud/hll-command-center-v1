@@ -21,6 +21,6 @@ jobs:
       - name: Parse JSX syntax
         run: |
           npm install --no-save @babel/parser
-          node --input-type=module -e "import fs from 'node:fs'; import {parse} from '@babel/parser'; parse(fs.readFileSync('src/main.jsx','utf8'), {sourceType:'module', plugins:['jsx']}); console.log('Babel JSX parse passed');"
+          node --input-type=module -e "import fs from 'node:fs'; import {parse} from '@babel/parser'; const a=parse(fs.readFileSync('src/main.jsx','utf8'), {sourceType:'module', plugins:['jsx'], errorRecovery:true}); console.log(a.errors.map(e=>({reason:e.reasonCode,line:e.loc?.line,column:e.loc?.column,message:e.message}))); if(a.errors.length) process.exit(1);"
       - name: Build production bundle
         run: npm run build
