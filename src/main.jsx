@@ -1022,46 +1022,47 @@ function Calendar({data,setData,clan}){
   </>;
 }
 
-function Roster({data,setData,embedded=false}){
+function Roster({clan,user,data,setData,embedded=false}){
+  const [members,setMembers]=useState([]);
+  const [squads,setSquads]=useState([]);
+  const [assignments,setAssignments]=useState([]);
   const [filter,setFilter]=useState('');
-  const [newName,setNewName]=useState('');
-  const filtered=data.players.filter(p=>`${p.name} ${p.squad} ${p.role}`.toLowerCase().includes(filter.toLowerCase()));
-  function add(){
-    if(!newName.trim())return;
-    setData(d=>({...d,players:[...d.players,{id:crypto.randomUUID?.()||Math.random(),name:newName.trim(),squad:'Echo',role:'Rifleman',status:'ready'}]}));
-    setNewName('');
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState('');
+  async function load(){
+    if(!supabase||!clan?.id){setMembers(data.players||[]);setLoading(false);return;}
+    setLoading(true);setError('');
+    try{
+      const [{data:m,error:me},{data:s,error:se},{data:a,error:ae}]=await Promise.all([
+        supabase.from('clan_members').select('id,user_id,callsign,primary_role,role,active,membership_status').eq('clan_id',clan.id).eq('active',true).eq('membership_status','active').order('callsign'),
+        supabase.from('clan_squads').select('id,name,short_code,color,squad_lead_id,active').eq('clan_id',clan.id).eq('active',true).order('sort_order'),
+        supabase.from('clan_squad_members').select('user_id,squad_id').eq('clan_id',clan.id)
+      ]);
+      if(me)throw me;if(se)throw se;if(ae)throw ae;
+      setMembers(m||[]);setSquads(s||[]);setAssignments(a||[]);
+    }catch(e){setError(e.message||'Could not load roster.')}
+    finally{setLoading(false)}
   }
-  const squads=[...new Set(data.players.map(p=>p.squad))].map(s=>{
-    const a=data.players.filter(p=>p.squad===s);
-    return {s,ready:a.filter(p=>p.status==='ready').length,total:a.length};
-  });
+  useEffect(()=>{load()},[clan?.id]);
+  const squadByUser=useMemo(()=>Object.fromEntries(assignments.map(a=>[a.user_id,a])),[assignments]);
+  const filtered=members.filter(m=>`${m.callsign||''} ${m.primary_role||''} ${m.role||''}`.toLowerCase().includes(filter.toLowerCase()));
+  const squadStats=squads.map(s=>({s,count:assignments.filter(a=>a.squad_id===s.id).length,lead:members.find(m=>m.user_id===s.squad_lead_id)}));
   return <div className={embedded?'embedded':''}>
-    {!embedded&&<PageHead eyebrow="PERSONNEL" title="ROSTER & SQUADS" subtitle="ASSIGN PLAYERS, ROLES AND READINESS" actions={<button className="btn primary" onClick={add}><Plus size={15}/> ADD PLAYER</button>}/>}
-    <div className="grid g2">
-      <div className="card">
-        <div className="toolbar">
-          <div className="search"><Search size={14}/><input value={filter} onChange={e=>setFilter(e.target.value)} placeholder="Search player, squad, role…"/></div>
-          <div className="add-inline"><input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Player name"/><button className="btn" onClick={add}><Plus size={14}/></button></div>
-        </div>
-        <table className="table">
-          <thead><tr><th>PLAYER</th><th>SQUAD</th><th>ROLE</th><th>STATUS</th></tr></thead>
-          <tbody>
-            {filtered.map(p=>(
-              <tr key={p.id}><td><b>{p.name}</b></td><td>{p.squad}</td><td><Tag>{p.role}</Tag></td><td><Tag tone={p.status==='ready'?'green':'red'}>{p.status.toUpperCase()}</Tag></td></tr>
-            ))}
-          </tbody>
-        </table>
+    {!embedded&&<PageHead eyebrow="PERSONNEL" title="ROSTER" subtitle="LIVE CLAN PERSONNEL · ROLES · DEFAULT SQUADS" actions={<div className="button-row"><Link className="btn" to="/members">MANAGE MEMBERS</Link><Link className="btn primary" to="/squads">SQUAD HUB</Link></div>}/>}
+    {error&&<div className="error section">{error}</div>}
+    <div className="grid g4"><Stat label="ACTIVE MEMBERS" value={members.length} sub="LIVE FROM SUPABASE"/><Stat label="SQUADS" value={squads.length} sub="DEFAULT UNITS"/><Stat label="ASSIGNED" value={assignments.length} sub="DEFAULT SQUAD"/><Stat label="UNASSIGNED" value={Math.max(0,members.length-assignments.length)} sub="NEEDS PLACEMENT"/></div>
+    <div className="grid g2 section">
+      <div className="card section">
+        <div className="toolbar"><div className="search"><Search size={14}/><input value={filter} onChange={e=>setFilter(e.target.value)} placeholder="Search callsign or role…"/></div></div>
+        <div className="section-head"><div><h3>Personnel roster</h3><small>{loading?'LOADING…':`${filtered.length} ACTIVE MEMBERS`}</small></div><span>READ / MANAGE IN MEMBERS</span></div>
+        <div className="table-scroll"><table className="table"><thead><tr><th>CALLSIGN</th><th>ROLE</th><th>DEFAULT SQUAD</th><th>ACCESS</th></tr></thead><tbody>
+          {filtered.map(m=>{const a=squadByUser[m.user_id];const squad=squads.find(x=>x.id===a?.squad_id);return <tr key={m.user_id}><td><Link className="member-link" to={`/members/${m.id}`}><b>{m.callsign||'Unnamed player'}</b></Link></td><td>{m.primary_role||'Rifleman'}</td><td>{squad?.name||<Tag tone="yellow">UNASSIGNED</Tag>}</td><td><Tag tone={m.role==='commander'?'green':m.role==='squad_lead'?'yellow':''}>{ROLE_LABELS[m.role]||'PLAYER'}</Tag></td></tr>})}
+          {!filtered.length&&!loading&&<tr><td colSpan="4"><div className="empty-state">No active members found.</div></td></tr>}
+        </tbody></table></div>
       </div>
-      <div className="card">
-        <div className="section-head"><h3>Squad readiness</h3><span>LIVE</span></div>
-        <div className="side-list">
-          {squads.map(x=>(
-            <div className="row" key={x.s}>
-              <div><b>{x.s}</b><small>{x.ready}/{x.total} READY</small></div>
-              <div className="progress"><i style={{width:`${x.total?x.ready/x.total*100:0}%`}}/></div>
-            </div>
-          ))}
-        </div>
+      <div className="card section">
+        <div className="section-head"><div><h3>Squad overview</h3><small>DEFAULT CLAN STRUCTURE</small></div><Link className="btn mini-action" to="/squads">OPEN HUB</Link></div>
+        <div className="side-list">{squadStats.map(x=><div className="row" key={x.s.id}><div><b>{x.s.name}</b><small>{x.count} MEMBERS · {x.lead?.callsign||'NO SL'}</small></div><Tag tone={x.count?'green':'yellow'}>{x.count?'ASSIGNED':'EMPTY'}</Tag></div>)}{!squadStats.length&&<div className="empty-state">No default squads configured.</div>}</div>
       </div>
     </div>
   </div>;
@@ -1150,6 +1151,8 @@ function MemberProfile({clan,user}){
   const [commandNotes,setCommandNotes]=useState('');
   const [active,setActive]=useState(true);
   const [accessRole,setAccessRole]=useState('player');
+  const [training,setTraining]=useState([]);
+  const [trainingForm,setTrainingForm]=useState({training_date:new Date().toISOString().slice(0,10),category:'INFANTRY',session:'',result:'',score:'',notes:''});
   const primaryRoles=['Rifleman','Assault','Support','MG','AT','Engineer','Medic','Recon','Spotter','Sniper','Tank','Armor','Squad Lead','Commander','CO'];
   const memberIsSelf=member?.user_id===user?.id;
   const canEdit=admin||memberIsSelf;
@@ -1165,12 +1168,30 @@ function MemberProfile({clan,user}){
       const {data:prefs}=await supabase.from('clan_member_preferences').select('squad_preference,updated_at').eq('member_id',m.id).eq('clan_id',clan.id).maybeSingle();
       let notes='';
       if(admin){ const {data:n}=await supabase.from('clan_member_command_notes').select('notes').eq('member_id',m.id).eq('clan_id',clan.id).maybeSingle(); notes=n?.notes||''; }
+      const {data:trainingRows,error:trainingError}=await supabase.from('member_training_records').select('id,training_date,category,session,result,score,notes,created_at').eq('clan_id',clan.id).eq('member_id',m.id).order('training_date',{ascending:false}).limit(20);
+      if(trainingError)throw trainingError;
       if(!cancelled){
-        setMember(m);setCallsign(m.callsign||m.profiles?.display_name||'');setPrimaryRole(m.primary_role||'Rifleman');setSquadPreference(prefs?.squad_preference||'');setCommandNotes(notes);setActive(!!m.active);setAccessRole(m.role||'player');setLoading(false);
+        setMember(m);setCallsign(m.callsign||m.profiles?.display_name||'');setPrimaryRole(m.primary_role||'Rifleman');setSquadPreference(prefs?.squad_preference||'');setCommandNotes(notes);setActive(!!m.active);setAccessRole(m.role||'player');setTraining(trainingRows||[]);setLoading(false);
       }
     })();
     return()=>{cancelled=true};
   },[clan?.id,memberId,admin]);
+
+  async function addTraining(e){
+    e?.preventDefault();
+    if(!admin||!supabase||!clan?.id||!member)return;
+    if(!trainingForm.session.trim()){setError('Training session is required.');return;}
+    setBusy(true);setError('');setMessage('');
+    try{
+      const payload={clan_id:clan.id,member_id:member.id,training_date:trainingForm.training_date,category:trainingForm.category,session:trainingForm.session.trim(),result:trainingForm.result.trim()||null,score:trainingForm.score===''?null:Number(trainingForm.score),notes:trainingForm.notes.trim()||null,created_by:user.id,updated_at:new Date().toISOString()};
+      const {data:row,error:e}=await supabase.from('member_training_records').insert(payload).select('id,training_date,category,session,result,score,notes,created_at').single();
+      if(e)throw e;
+      setTraining(rows=>[row,...rows]);
+      setTrainingForm({training_date:new Date().toISOString().slice(0,10),category:'INFANTRY',session:'',result:'',score:'',notes:''});
+      setMessage('Training record added.');
+    }catch(e){setError(e.message||'Could not add training record.');}
+    finally{setBusy(false)}
+  }
 
   async function save(){
     if(!supabase||!clan?.id||!member){setMessage('Profile changes are available in the connected clan workspace.');return;}
@@ -1203,7 +1224,23 @@ function MemberProfile({clan,user}){
       <div className="card form"><div className="eyebrow">SQUAD FIT</div><h3>PREFERENCE</h3><label className="field"><span>PREFERRED SQUAD</span><input value={squadPreference} onChange={e=>setSquadPreference(e.target.value)} placeholder="Alpha / Bravo / Charlie…" maxLength={32} disabled={!canEdit}/></label><p className="muted">Preference guides assignments; command can still change squad placement for an operation.</p></div>
     </div>
     {admin&&<div className="grid g2 section"><div className="card form"><div className="eyebrow">ACCESS CONTROL</div><h3>CLAN ACCESS ROLE</h3><div className="stack"><label className="field"><span>ACCESS ROLE</span><select value={accessRole} onChange={e=>setAccessRole(e.target.value)} disabled={memberIsSelf&&accessRole==='commander'}>{['commander','co','squad_lead','player','recruit'].map(r=><option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</select></label><label className="check-row"><input type="checkbox" checked={active} onChange={e=>setActive(e.target.checked)} disabled={memberIsSelf}/><span>MEMBERSHIP ACTIVE</span></label><div className="callout"><Shield size={15}/> Roles control what this member can access inside the command system.</div></div></div><div className="card form"><div className="eyebrow">COMMAND ONLY</div><h3>COMMAND NOTES</h3><label className="field"><span>PRIVATE COMMAND NOTES</span><textarea value={commandNotes} onChange={e=>setCommandNotes(e.target.value)} placeholder="Reliability, training focus, leadership notes, admin context…" maxLength={2000}/></label><p className="muted">Visible only to Commander and CO accounts.</p></div></div>}
-    {(error||message)&&<div className={`section ${error?'error':'success'}`}>{error||message}</div>}
+    <div className="card section">
+      <div className="section-head"><div><h3>Training record</h3><small>${training.length} RECENT SESSIONS</small></div>{admin&&<Tag tone="green">COMMAND</Tag>}</div>
+      {admin&&<form onSubmit={addTraining} className="form">
+        <div className="form-grid"><label className="field"><span>DATE</span><input type="date" value={trainingForm.training_date} onChange={e=>setTrainingForm(f=>({...f,training_date:e.target.value}))}/></label>
+        <label className="field"><span>CATEGORY</span><select value={trainingForm.category} onChange={e=>setTrainingForm(f=>({...f,category:e.target.value}))}><option>INFANTRY</option><option>ARMOR</option><option>RECON</option><option>LEADERSHIP</option><option>COMMUNICATIONS</option></select></label>
+        <label className="field"><span>SESSION</span><input value={trainingForm.session} onChange={e=>setTrainingForm(f=>({...f,session:e.target.value}))} placeholder="Garrison defense drill"/></label>
+        <label className="field"><span>RESULT</span><input value={trainingForm.result} onChange={e=>setTrainingForm(f=>({...f,result:e.target.value}))} placeholder="Passed / Follow-up"/></label>
+        <label className="field"><span>SCORE (0–100)</span><input type="number" min="0" max="100" value={trainingForm.score} onChange={e=>setTrainingForm(f=>({...f,score:e.target.value}))}/></label>
+        <label className="field"><span>NOTES</span><input value={trainingForm.notes} onChange={e=>setTrainingForm(f=>({...f,notes:e.target.value}))} placeholder="Key observations"/></label></div>
+        <div className="actions"><button className="btn primary" disabled={busy}>{busy?'SAVING…':'ADD TRAINING RECORD'}</button></div>
+      </form>}
+      <div className="table-scroll"><table className="table"><thead><tr><th>DATE</th><th>CATEGORY</th><th>SESSION</th><th>RESULT</th><th>SCORE</th><th>NOTES</th></tr></thead><tbody>
+        {training.map(t=><tr key={t.id}><td>{t.training_date}</td><td><Tag>{t.category}</Tag></td><td><b>{t.session}</b></td><td>{t.result||'—'}</td><td>{t.score==null?'—':t.score}</td><td>{t.notes||'—'}</td></tr>)}
+        {!training.length&&<tr><td colSpan="6"><div className="empty-state">No training records yet.</div></td></tr>}
+      </tbody></table></div>
+    </div>
+        {(error||message)&&<div className={`section ${error?'error':'success'}`}>{error||message}</div>}
   </>;
 }
 
