@@ -1022,7 +1022,7 @@ function Calendar({data,setData,clan}){
   </>;
 }
 
-function Roster({data,setData,embedded=false}){function Roster({data,setData,embedded=false}){
+function Roster({data,setData,embedded=false}){
   const [filter,setFilter]=useState('');
   const [newName,setNewName]=useState('');
   const filtered=data.players.filter(p=>`${p.name} ${p.squad} ${p.role}`.toLowerCase().includes(filter.toLowerCase()));
