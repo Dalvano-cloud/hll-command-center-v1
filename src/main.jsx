@@ -1287,7 +1287,7 @@ function MemberProfile({clan,user}){
         <label className="field"><span>RESULT</span><input value={trainingForm.result} onChange={e=>setTrainingForm(f=>({...f,result:e.target.value}))} placeholder="Passed / Follow-up"/></label>
         <label className="field"><span>SCORE (0–100)</span><input type="number" min="0" max="100" value={trainingForm.score} onChange={e=>setTrainingForm(f=>({...f,score:e.target.value}))}/></label>
         <label className="field"><span>NOTES</span><input value={trainingForm.notes} onChange={e=>setTrainingForm(f=>({...f,notes:e.target.value}))} placeholder="Key observations"/></label></div>
-        <div className="actions"><button className="btn primary" disabled={busy}>{busy?'SAVING…':'ADD TRAINING RECORD'}</button></div>
+        <div className="actions"><button className="btn primary" disabled={busy}>{busy?'SAVING…':editingId?'SAVE TRAINING CHANGES':'ADD TRAINING RECORD'}</button></div>
       </form>}
       <div className="table-scroll"><table className="table"><thead><tr><th>DATE</th><th>CATEGORY</th><th>SESSION</th><th>RESULT</th><th>SCORE</th><th>NOTES</th></tr></thead><tbody>
         {training.map(t=><tr key={t.id}><td>{t.training_date}</td><td><Tag>{t.category}</Tag></td><td><b>{t.session}</b></td><td>{t.result||'—'}</td><td>{t.score==null?'—':t.score}</td><td>{t.notes||'—'}</td></tr>)}
@@ -1427,6 +1427,7 @@ function TrainingHub({clan,user}){
   const [loading,setLoading]=useState(true);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
+  const [editingId,setEditingId]=useState(null);
   const [form,setForm]=useState({member_id:'',training_date:new Date().toISOString().slice(0,10),category:'INFANTRY',session:'',result:'',score:'',notes:''});
 
   async function load(){
@@ -1454,16 +1455,33 @@ function TrainingHub({clan,user}){
   const avg=filtered.filter(r=>typeof r.score==='number').reduce((a,r)=>a+r.score,0)/(filtered.filter(r=>typeof r.score==='number').length||1);
   const categories=['INFANTRY','ARMOR','RECON','LEADERSHIP','COMMUNICATIONS'];
 
+  function startEdit(record){
+    setEditingId(record.id);
+    setError('');
+    setForm({member_id:record.member_id,training_date:record.training_date||new Date().toISOString().slice(0,10),category:record.category||'INFANTRY',session:record.session||'',result:record.result||'',score:record.score==null?'':String(record.score),notes:record.notes||''});
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
+  function resetTrainingForm(){
+    setEditingId(null);
+    setForm(x=>({...x,session:'',result:'',score:'',notes:''}));
+  }
+
   async function save(e){
     e?.preventDefault();
     if(!command||!supabase||!clan?.id)return;
     if(!form.member_id||!form.session.trim()){setError('Select a member and enter a training session.');return;}
+    if(form.score!==''&&(Number(form.score)<0||Number(form.score)>100)){setError('Score must be between 0 and 100.');return;}
     setBusy(true);setError('');
     try{
-      const payload={clan_id:clan.id,member_id:form.member_id,training_date:form.training_date,category:form.category,session:form.session.trim(),result:form.result.trim()||null,score:form.score===''?null:Number(form.score),notes:form.notes.trim()||null,created_by:user.id,updated_at:new Date().toISOString()};
-      const {error:e1}=await supabase.from('member_training_records').insert(payload);if(e1)throw e1;
-      setForm(x=>({...x,session:'',result:'',score:'',notes:''}));await load();
-    }catch(e){setError(e.message||'Could not add training record.')}finally{setBusy(false)}
+      const common={member_id:form.member_id,training_date:form.training_date,category:form.category,session:form.session.trim(),result:form.result.trim()||null,score:form.score===''?null:Number(form.score),notes:form.notes.trim()||null,updated_at:new Date().toISOString()};
+      if(editingId){
+        const {error:e1}=await supabase.from('member_training_records').update(common).eq('id',editingId).eq('clan_id',clan.id);if(e1)throw e1;
+      }else{
+        const {error:e1}=await supabase.from('member_training_records').insert({...common,clan_id:clan.id,created_by:user.id});if(e1)throw e1;
+      }
+      resetTrainingForm();
+      await load();
+    }catch(e){setError(e.message||'Could not save training record.')}finally{setBusy(false)}
   }
 
   async function remove(id){
@@ -1483,7 +1501,7 @@ function TrainingHub({clan,user}){
       <Stat label="AVG SCORE" value={filtered.some(r=>r.score!=null)?Math.round(avg):'—'} sub="VISIBLE SCORED SESSIONS"/>
     </div>
     {command&&<div className="card form section">
-      <div className="section-head"><div><h3>Add training record</h3><small>STORE QUALIFICATION HISTORY PER MEMBER</small></div></div>
+      <div className="section-head"><div><h3>{editingId?'Edit training record':'Add training record'}</h3><small>{editingId?'UPDATE QUALIFICATION HISTORY':'STORE QUALIFICATION HISTORY PER MEMBER'}</small></div>{editingId&&<button className="btn" type="button" onClick={resetTrainingForm} disabled={busy}>CANCEL EDIT</button>}</div>
       <form onSubmit={save} className="stack">
         <div className="form-grid">
           <label className="field"><span>MEMBER</span><select value={form.member_id} onChange={e=>setForm(x=>({...x,member_id:e.target.value}))}>{members.map(m=><option key={m.id} value={m.id}>{m.callsign||'Unnamed'} · {m.primary_role||'Rifleman'}</option>)}</select></label>
@@ -1504,7 +1522,7 @@ function TrainingHub({clan,user}){
       </div>
       <div className="section-head"><div><h3>Training history</h3><small>{loading?'LOADING…':`${filtered.length} RECORDS`}</small></div><span>{command?'COMMAND VIEW':'YOUR TRAINING'}</span></div>
       <div className="table-scroll"><table className="table"><thead><tr><th>DATE</th><th>MEMBER</th><th>CATEGORY</th><th>SESSION</th><th>RESULT</th><th>SCORE</th><th>NOTES</th><th></th></tr></thead><tbody>
-        {filtered.map(r=>{const m=memberById[r.member_id];return <tr key={r.id}><td>{r.training_date}</td><td><b>{m?.callsign||'Member'}</b></td><td><Tag>{r.category}</Tag></td><td>{r.session}</td><td>{r.result||'—'}</td><td>{r.score==null?'—':r.score}</td><td>{r.notes||'—'}</td><td>{command&&<button className="btn mini-action" onClick={()=>remove(r.id)} disabled={busy}>DELETE</button>}</td></tr>})}
+        {filtered.map(r=>{const m=memberById[r.member_id];return <tr key={r.id}><td>{r.training_date}</td><td><b>{m?.callsign||'Member'}</b></td><td><Tag>{r.category}</Tag></td><td>{r.session}</td><td>{r.result||'—'}</td><td>{r.score==null?'—':r.score}</td><td>{r.notes||'—'}</td><td>{command&&<div className="button-row"><button className="btn mini-action" onClick={()=>startEdit(r)} disabled={busy}>EDIT</button><button className="btn mini-action" onClick={()=>remove(r.id)} disabled={busy}>DELETE</button></div>}</td></tr>})}
         {!filtered.length&&!loading&&<tr><td colSpan="8"><div className="empty-state">No training records found.</div></td></tr>}
       </tbody></table></div>
     </div>
