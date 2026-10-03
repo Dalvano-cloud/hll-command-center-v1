@@ -407,9 +407,9 @@ function Shell({session,store}){
   },[clan?.id]);
   async function logout(){if(supabase) await supabase.auth.signOut(); else window.location.reload()}
   return <div className="app"><aside className={sidebar?'sidebar open':'sidebar'}><div className="brand">HLL // COMMAND<small>{clan?.tag ? `${clan.tag} · ` : ''}CLAN OPERATIONS HUB</small></div><nav>{[
-    ['/', 'Dashboard', Home],['/command-room','Command Room',Shield],['/my-operation','My Operation',Radio],['/operations','Operations',Swords],['/calendar','Calendar',CalendarDays],['/roster','Roster',Users],['/squads','Squad Hub',Users],['/members','Members',Users],['/strategy','Strategies',Target],['/maps','Stage Maps',MapIcon],['/briefings','Briefings',FileText],['/activity','Command Feed',Activity],['/wiki','Clan Wiki',BookOpen],['/aar','AAR',ClipboardCheck],...(canCommand(clan)?[['/settings','Clan Settings',Settings]]:[])
+    ['/', 'Dashboard', Home],['/command-room','Command Room',Shield],['/my-operation','My Operation',Radio],['/operations','Operations',Swords],['/calendar','Calendar',CalendarDays],['/roster','Roster',Users],['/squads','Squad Hub',Users],['/members','Members',Users],['/training','Training',ClipboardCheck],['/strategy','Strategies',Target],['/maps','Stage Maps',MapIcon],['/briefings','Briefings',FileText],['/activity','Command Feed',Activity],['/wiki','Clan Wiki',BookOpen],['/aar','AAR',ClipboardCheck],...(canCommand(clan)?[['/settings','Clan Settings',Settings]]:[])
   ].map(([to,label,Icon])=><NavLink key={to} to={to} onClick={()=>setSidebar(false)} className={({isActive})=>isActive?'navitem active':'navitem'}><Icon size={17}/><span>{label}</span></NavLink>)}</nav><div className="side-bottom"><div className="online"><i/>SYSTEM ONLINE</div><div>{clan?.name || 'HLL Demo Clan'}</div><div className="muted">{supabase ? 'SUPABASE CONNECTED' : 'LOCAL DEMO MODE'}</div></div></aside><main><header className="topbar"><button className="mobile-menu" onClick={()=>setSidebar(v=>!v)}><Menu/></button><TopCrumb/><div className="top-right"><button className="iconbtn" onClick={()=>navigate('/activity')} title="Command Feed"><Bell size={16}/>{activityCount>0&&<em className="activity-badge">{activityCount>99?'99+':activityCount}</em>}</button><button className="profile profile-clickable" onClick={()=>navigate('/profile')} title="Edit profile"><div className="avatar">{displayName.slice(0,1).toUpperCase()}</div><div><b>{displayName}</b><span>{(clan?.role || DEMO_USER.role).toUpperCase()}</span></div></button><button className="iconbtn" onClick={logout} title="Log out"><LogOut size={15}/></button></div></header><div className="content"><Routes>
-    <Route path="/reset-password" element={<ResetPassword/>}/><Route path="/" element={<Dashboard data={data} clan={clan}/>}/><Route path="/my-operation" element={<MyOperation data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/operations" element={<Operations data={data} setData={setData} clan={clan}/>}/><Route path="/operations/:id" element={<OperationDetail data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/calendar" element={<Calendar data={data} setData={setData} clan={clan} user={user}/>}/><Route path="/roster" element={<Roster clan={clan} user={user} data={data} setData={setData}/>}/><Route path="/squads" element={<SquadHub clan={clan} user={user}/>}/><Route path="/members" element={<Members clan={clan} user={user} data={data} setClan={store.setClan}/>}/><Route path="/members/:memberId" element={<MemberProfile clan={clan} user={user}/>}/><Route path="/settings" element={canCommand(clan)?<ClanSettings clan={clan} setClan={store.setClan}/>:<PermissionCard clan={clan} title="CLAN SETTINGS CONTROLLED" text="Only Commander and CO roles can edit clan settings."/>}/><Route path="/strategy" element={canCommand(clan)?<Strategy data={data} setData={setData}/>:<PermissionCard clan={clan} title="STRATEGY CONTROLLED" text="Commander and CO roles can build and publish clan strategy."/>}/><Route path="/maps" element={canCommand(clan)?<Maps data={data} setData={setData}/>:<PermissionCard clan={clan} title="STAGE MAPS CONTROLLED" text="Command roles manage the tactical map workspace."/>}/><Route path="/briefings" element={canCommand(clan)?<Briefings data={data} setData={setData}/>:<PermissionCard clan={clan} title="BRIEFINGS CONTROLLED" text="Command roles publish player briefings."/>}/><Route path="/activity" element={<ActivityFeed clan={clan} user={user} data={data}/>}/><Route path="/command-room" element={<CommandRoom clan={clan} user={user} data={data}/>}/><Route path="/wiki" element={<Wiki data={data} clan={clan} user={user}/>}/><Route path="/aar" element={canCommand(clan)?<AAR data={data} setData={setData}/>:<PermissionCard clan={clan} title="AAR CONTROLLED" text="Command roles own the official after-action review."/>}/><Route path="/profile" element={<Profile user={user} clan={clan} store={store}/>}/>
+    <Route path="/reset-password" element={<ResetPassword/>}/><Route path="/" element={<Dashboard data={data} clan={clan}/>}/><Route path="/my-operation" element={<MyOperation data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/operations" element={<Operations data={data} setData={setData} clan={clan}/>}/><Route path="/operations/:id" element={<OperationDetail data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/calendar" element={<Calendar data={data} setData={setData} clan={clan} user={user}/>}/><Route path="/roster" element={<Roster clan={clan} user={user} data={data} setData={setData}/>}/><Route path="/squads" element={<SquadHub clan={clan} user={user}/>}/><Route path="/members" element={<Members clan={clan} user={user} data={data} setClan={store.setClan}/>}/><Route path="/members/:memberId" element={<MemberProfile clan={clan} user={user}/>}/><Route path="/training" element={<TrainingHub clan={clan} user={user}/>}/><Route path="/settings" element={canCommand(clan)?<ClanSettings clan={clan} setClan={store.setClan}/>:<PermissionCard clan={clan} title="CLAN SETTINGS CONTROLLED" text="Only Commander and CO roles can edit clan settings."/>}/><Route path="/strategy" element={canCommand(clan)?<Strategy data={data} setData={setData}/>:<PermissionCard clan={clan} title="STRATEGY CONTROLLED" text="Commander and CO roles can build and publish clan strategy."/>}/><Route path="/maps" element={canCommand(clan)?<Maps data={data} setData={setData}/>:<PermissionCard clan={clan} title="STAGE MAPS CONTROLLED" text="Command roles manage the tactical map workspace."/>}/><Route path="/briefings" element={canCommand(clan)?<Briefings data={data} setData={setData}/>:<PermissionCard clan={clan} title="BRIEFINGS CONTROLLED" text="Command roles publish player briefings."/>}/><Route path="/activity" element={<ActivityFeed clan={clan} user={user} data={data}/>}/><Route path="/command-room" element={<CommandRoom clan={clan} user={user} data={data}/>}/><Route path="/wiki" element={<Wiki data={data} clan={clan} user={user}/>}/><Route path="/aar" element={canCommand(clan)?<AAR data={data} setData={setData}/>:<PermissionCard clan={clan} title="AAR CONTROLLED" text="Command roles own the official after-action review."/>}/><Route path="/profile" element={<Profile user={user} clan={clan} store={store}/>}/>
   </Routes></div></main></div>
 }
 
@@ -1378,6 +1378,99 @@ function SquadHub({clan,user}){
     </div>
     <div className="card section"><div className="section-head"><div><h3>Assignment board</h3><span>DEFAULT CLAN ROSTER</span></div><span>{loading?'LOADING…':`${members.length} ACTIVE MEMBERS`}</span></div><div className="table-scroll"><table className="table"><thead><tr><th>MEMBER</th><th>ROLE</th><th>CURRENT SQUAD</th><th>PREFERENCE</th><th>ACTION</th></tr></thead><tbody>{members.map(m=>{const a=assignedByUser[m.user_id]; const pref=preferenceByMember[m.id]||''; return <tr key={m.user_id}><td><b>{m.callsign||'Unnamed player'}</b></td><td><Tag>{m.primary_role||'Rifleman'}</Tag></td><td>{squads.find(s=>s.id===a?.squad_id)?.name||<Tag tone="yellow">UNASSIGNED</Tag>}</td><td>{pref||<span className="muted">Use Member Profile</span>}</td><td>{command?<select value={a?.squad_id||''} onChange={e=>assign(m.user_id,e.target.value)} disabled={busy}><option value="">UNASSIGNED</option>{squads.filter(s=>s.active).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>:<span className="muted">READ ONLY</span>}</td></tr>})}{!members.length&&!loading&&<tr><td colSpan="5"><div className="empty-state">No active members found.</div></td></tr>}</tbody></table></div></div>
     <div className="callout section"><Shield size={15}/> Default squad assignments are clan-level. Operation squads can still be changed at the last minute on each operation.</div>
+  </>;
+}
+
+function TrainingHub({clan,user}){
+  const command=canCommand(clan);
+  const [members,setMembers]=useState([]);
+  const [records,setRecords]=useState([]);
+  const [memberFilter,setMemberFilter]=useState('');
+  const [categoryFilter,setCategoryFilter]=useState('ALL');
+  const [loading,setLoading]=useState(true);
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  const [form,setForm]=useState({member_id:'',training_date:new Date().toISOString().slice(0,10),category:'INFANTRY',session:'',result:'',score:'',notes:''});
+
+  async function load(){
+    if(!supabase||!clan?.id){setLoading(false);return;}
+    setLoading(true);setError('');
+    try{
+      const [{data:m,error:me},{data:r,error:re}]=await Promise.all([
+        supabase.from('clan_members').select('id,user_id,callsign,primary_role,role').eq('clan_id',clan.id).eq('active',true).eq('membership_status','active').order('callsign'),
+        supabase.from('member_training_records').select('id,member_id,training_date,category,session,result,score,notes,created_at').eq('clan_id',clan.id).order('training_date',{ascending:false}).order('created_at',{ascending:false}).limit(200)
+      ]);
+      if(me)throw me;if(re)throw re;
+      setMembers(m||[]);setRecords(r||[]);
+      if(!form.member_id && m?.[0])setForm(x=>({...x,member_id:m[0].id}));
+    }catch(e){setError(e.message||'Could not load training records.')}finally{setLoading(false)}
+  }
+  useEffect(()=>{
+    load();
+    if(!supabase||!clan?.id)return;
+    const ch=supabase.channel(`training-${clan.id}`).on('postgres_changes',{event:'*',schema:'public',table:'member_training_records',filter:`clan_id=eq.${clan.id}`},()=>load()).subscribe();
+    return ()=>{supabase.removeChannel(ch)};
+  },[clan?.id]);
+
+  const memberById=useMemo(()=>Object.fromEntries(members.map(m=>[m.id,m])),[members]);
+  const filtered=records.filter(r=>(!memberFilter||r.member_id===memberFilter)&&(categoryFilter==='ALL'||r.category===categoryFilter));
+  const avg=filtered.filter(r=>typeof r.score==='number').reduce((a,r)=>a+r.score,0)/(filtered.filter(r=>typeof r.score==='number').length||1);
+  const categories=['INFANTRY','ARMOR','RECON','LEADERSHIP','COMMUNICATIONS'];
+
+  async function save(e){
+    e?.preventDefault();
+    if(!command||!supabase||!clan?.id)return;
+    if(!form.member_id||!form.session.trim()){setError('Select a member and enter a training session.');return;}
+    setBusy(true);setError('');
+    try{
+      const payload={clan_id:clan.id,member_id:form.member_id,training_date:form.training_date,category:form.category,session:form.session.trim(),result:form.result.trim()||null,score:form.score===''?null:Number(form.score),notes:form.notes.trim()||null,created_by:user.id,updated_at:new Date().toISOString()};
+      const {error:e1}=await supabase.from('member_training_records').insert(payload);if(e1)throw e1;
+      setForm(x=>({...x,session:'',result:'',score:'',notes:''}));await load();
+    }catch(e){setError(e.message||'Could not add training record.')}finally{setBusy(false)}
+  }
+
+  async function remove(id){
+    if(!command||!supabase||!clan?.id||!window.confirm('Delete this training record?'))return;
+    setBusy(true);setError('');
+    try{const {error:e}=await supabase.from('member_training_records').delete().eq('id',id).eq('clan_id',clan.id);if(e)throw e;await load();}
+    catch(e){setError(e.message||'Could not delete training record.')}finally{setBusy(false)}
+  }
+
+  return <>
+    <PageHead eyebrow="PERSONNEL DEVELOPMENT" title="TRAINING HUB" subtitle="QUALIFICATION · DRILLS · LEADERSHIP · READINESS" actions={command?<Tag tone="green">COMMAND</Tag>:<Tag tone="yellow">MY RECORDS</Tag>}/>
+    {error&&<div className="error section">{error}</div>}
+    <div className="grid g4">
+      <Stat label="RECORDS" value={filtered.length} sub="VISIBLE TRAINING SESSIONS"/>
+      <Stat label="MEMBERS" value={members.length} sub="ACTIVE PERSONNEL"/>
+      <Stat label="SCORED" value={filtered.filter(r=>r.score!=null).length} sub="SESSIONS WITH SCORE"/>
+      <Stat label="AVG SCORE" value={filtered.some(r=>r.score!=null)?Math.round(avg):'—'} sub="VISIBLE SCORED SESSIONS"/>
+    </div>
+    {command&&<div className="card form section">
+      <div className="section-head"><div><h3>Add training record</h3><small>STORE QUALIFICATION HISTORY PER MEMBER</small></div></div>
+      <form onSubmit={save} className="stack">
+        <div className="form-grid">
+          <label className="field"><span>MEMBER</span><select value={form.member_id} onChange={e=>setForm(x=>({...x,member_id:e.target.value}))}>{members.map(m=><option key={m.id} value={m.id}>{m.callsign||'Unnamed'} · {m.primary_role||'Rifleman'}</option>)}</select></label>
+          <label className="field"><span>DATE</span><input type="date" value={form.training_date} onChange={e=>setForm(x=>({...x,training_date:e.target.value}))}/></label>
+          <label className="field"><span>CATEGORY</span><select value={form.category} onChange={e=>setForm(x=>({...x,category:e.target.value}))}>{categories.map(c=><option key={c}>{c}</option>)}</select></label>
+          <label className="field"><span>SESSION</span><input value={form.session} onChange={e=>setForm(x=>({...x,session:e.target.value}))} placeholder="Garrison defense drill" required/></label>
+          <label className="field"><span>RESULT</span><input value={form.result} onChange={e=>setForm(x=>({...x,result:e.target.value}))} placeholder="Passed / Follow-up"/></label>
+          <label className="field"><span>SCORE</span><input type="number" min="0" max="100" value={form.score} onChange={e=>setForm(x=>({...x,score:e.target.value}))} placeholder="0–100"/></label>
+          <label className="field"><span>NOTES</span><input value={form.notes} onChange={e=>setForm(x=>({...x,notes:e.target.value}))} placeholder="Observed strengths / follow-up"/></label>
+        </div>
+        <div className="actions"><button className="btn primary" disabled={busy}>{busy?'SAVING…':'ADD TRAINING RECORD'}</button></div>
+      </form>
+    </div>}
+    <div className="card section">
+      <div className="toolbar">
+        <label className="field"><span>MEMBER FILTER</span><select value={memberFilter} onChange={e=>setMemberFilter(e.target.value)}><option value="">ALL MEMBERS</option>{members.map(m=><option key={m.id} value={m.id}>{m.callsign||'Unnamed'}</option>)}</select></label>
+        <label className="field"><span>CATEGORY</span><select value={categoryFilter} onChange={e=>setCategoryFilter(e.target.value)}><option>ALL</option>{categories.map(c=><option key={c}>{c}</option>)}</select></label>
+      </div>
+      <div className="section-head"><div><h3>Training history</h3><small>{loading?'LOADING…':`${filtered.length} RECORDS`}</small></div><span>{command?'COMMAND VIEW':'YOUR TRAINING'}</span></div>
+      <div className="table-scroll"><table className="table"><thead><tr><th>DATE</th><th>MEMBER</th><th>CATEGORY</th><th>SESSION</th><th>RESULT</th><th>SCORE</th><th>NOTES</th><th></th></tr></thead><tbody>
+        {filtered.map(r=>{const m=memberById[r.member_id];return <tr key={r.id}><td>{r.training_date}</td><td><b>{m?.callsign||'Member'}</b></td><td><Tag>{r.category}</Tag></td><td>{r.session}</td><td>{r.result||'—'}</td><td>{r.score==null?'—':r.score}</td><td>{r.notes||'—'}</td><td>{command&&<button className="btn mini-action" onClick={()=>remove(r.id)} disabled={busy}>DELETE</button>}</td></tr>})}
+        {!filtered.length&&!loading&&<tr><td colSpan="8"><div className="empty-state">No training records found.</div></td></tr>}
+      </tbody></table></div>
+    </div>
   </>;
 }
 
