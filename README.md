@@ -15,7 +15,7 @@ The live web app uses Supabase Auth/Postgres and Vercel. Real clans do not depen
 - Membership approval, activation and role control
 - Commander / CO / Squad Lead / Player / Recruit permissions
 - Player callsign and profile
-- Member preferences, private command notes and training records
+- Member preferences, private command notes and editable training records
 - Default clan Squad Hub plus flexible per-operation squad assignments
 - Operation workspace with attendance, strategy, stage maps, briefings and AAR
 - Explicit operation lifecycle: DRAFT → READY → ACTIVE → ARCHIVED
@@ -25,9 +25,10 @@ The live web app uses Supabase Auth/Postgres and Vercel. Real clans do not depen
 - Live Command Room and Command Feed
 - Live Calendar with operation links
 - Clan Wiki / SOP knowledge base
-- Realtime updates for shared workspace, activity, members, calendar and wiki
+- Realtime updates for shared workspace, activity, members, squads, calendar, training and wiki
 - Relational Supabase records for operations, squads, roster assignments, strategy, maps, briefings, receipts and AAR
 - Production build verification through GitHub Actions
+- Operational audit logging for key personnel, scheduling and knowledge-base changes
 
 ## Local development
 
