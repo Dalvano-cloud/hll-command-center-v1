@@ -1387,8 +1387,10 @@ function SquadHub({clan,user}){
     if(!command||!supabase)return; setBusy(true); setError(''); try{const {error:e}=await supabase.from('clan_squads').update({squad_lead_id:userId||null,updated_at:new Date().toISOString()}).eq('id',squadId).eq('clan_id',clan.id); if(e)throw e; await load();}catch(e){setError(e.message||'Could not update squad lead.')}finally{setBusy(false)}
   }
   async function assign(userId,squadId){
-    if(!command||!supabase)return; setBusy(true); setError(''); try{
-      await supabase.from('clan_squad_members').delete().eq('clan_id',clan.id).eq('user_id',userId);
+    if(!command||!supabase)return; setBusy(true); setError('');
+    try{
+      const {error:removeError}=await supabase.from('clan_squad_members').delete().eq('clan_id',clan.id).eq('user_id',userId);
+      if(removeError)throw removeError;
       if(squadId){const {error:e}=await supabase.from('clan_squad_members').insert({clan_id:clan.id,squad_id:squadId,user_id:userId}); if(e)throw e;}
       await load();
     }catch(e){setError(e.message||'Could not assign member.')}finally{setBusy(false)}
