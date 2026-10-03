@@ -1287,7 +1287,7 @@ function MemberProfile({clan,user}){
         <label className="field"><span>RESULT</span><input value={trainingForm.result} onChange={e=>setTrainingForm(f=>({...f,result:e.target.value}))} placeholder="Passed / Follow-up"/></label>
         <label className="field"><span>SCORE (0–100)</span><input type="number" min="0" max="100" value={trainingForm.score} onChange={e=>setTrainingForm(f=>({...f,score:e.target.value}))}/></label>
         <label className="field"><span>NOTES</span><input value={trainingForm.notes} onChange={e=>setTrainingForm(f=>({...f,notes:e.target.value}))} placeholder="Key observations"/></label></div>
-        <div className="actions"><button className="btn primary" disabled={busy}>{busy?'SAVING…':editingId?'SAVE TRAINING CHANGES':'ADD TRAINING RECORD'}</button></div>
+        <div className="actions"><button className="btn primary" disabled={busy}>{busy?'SAVING…':'ADD TRAINING RECORD'}</button></div>
       </form>}
       <div className="table-scroll"><table className="table"><thead><tr><th>DATE</th><th>CATEGORY</th><th>SESSION</th><th>RESULT</th><th>SCORE</th><th>NOTES</th></tr></thead><tbody>
         {training.map(t=><tr key={t.id}><td>{t.training_date}</td><td><Tag>{t.category}</Tag></td><td><b>{t.session}</b></td><td>{t.result||'—'}</td><td>{t.score==null?'—':t.score}</td><td>{t.notes||'—'}</td></tr>)}
