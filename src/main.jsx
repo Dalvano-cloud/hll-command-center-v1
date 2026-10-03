@@ -314,6 +314,16 @@ function useAuth(){
   return {session,loading};
 }
 
+class AppErrorBoundary extends React.Component{
+  constructor(props){super(props);this.state={hasError:false,error:null};}
+  static getDerivedStateFromError(error){return {hasError:true,error};}
+  componentDidCatch(error,info){console.error('HLL Command Center UI error',error,info);}
+  render(){
+    if(this.state.hasError) return <div className="splash"><Shield size={36}/><div><div className="eyebrow">COMMAND SYSTEM ERROR</div><h2>WORKSPACE FAILED TO RENDER</h2><p className="muted">Refresh the page. If the problem continues, sign out and sign in again.</p><button className="btn primary" onClick={()=>window.location.reload()}>REFRESH COMMAND CENTER</button></div></div>;
+    return this.props.children;
+  }
+}
+
 function App(){
   const {session,loading}=useAuth();
   if(loading) return <div className="splash"><Shield size={36}/><div>INITIALIZING COMMAND SYSTEM</div></div>;
@@ -952,7 +962,12 @@ function Calendar({data,setData,clan}){
     }catch(e){setError(e.message||'Could not load calendar.');}
     finally{setLoading(false)}
   }
-  useEffect(()=>{load()},[clan?.id]);
+  useEffect(()=>{
+    load();
+    if(!supabase||!clan?.id)return;
+    const ch=supabase.channel(`wiki-${clan.id}`).on('postgres_changes',{event:'*',schema:'public',table:'wiki_articles',filter:`clan_id=eq.${clan.id}`},()=>load()).subscribe();
+    return ()=>{supabase.removeChannel(ch)};
+  },[clan?.id]);
 
   function reset(){
     setEditing(null);
@@ -1062,7 +1077,12 @@ function Roster({clan,user,data,setData,embedded=false}){
     }catch(e){setError(e.message||'Could not load roster.')}
     finally{setLoading(false)}
   }
-  useEffect(()=>{load()},[clan?.id]);
+  useEffect(()=>{
+    load();
+    if(!supabase||!clan?.id)return;
+    const ch=supabase.channel(`calendar-${clan.id}`).on('postgres_changes',{event:'*',schema:'public',table:'events',filter:`clan_id=eq.${clan.id}`},()=>load()).subscribe();
+    return ()=>{supabase.removeChannel(ch)};
+  },[clan?.id]);
   const squadByUser=useMemo(()=>Object.fromEntries(assignments.map(a=>[a.user_id,a])),[assignments]);
   const filtered=members.filter(m=>`${m.callsign||''} ${m.primary_role||''} ${m.role||''}`.toLowerCase().includes(filter.toLowerCase()));
   const squadStats=squads.map(s=>({s,count:assignments.filter(a=>a.squad_id===s.id).length,lead:members.find(m=>m.user_id===s.squad_lead_id)}));
@@ -1101,7 +1121,13 @@ function Members({clan,user,data,setClan}){
     if(!supabase||!clan?.id){setMembers((data.players||[]).map(p=>({id:p.id,callsign:p.name,role:p.role,user_id:p.memberUserId,active:true,primary_role:p.role})));setLoading(false);return;}
     setLoading(true); const {data:rows,error:e}=await supabase.from('clan_members').select('id,user_id,callsign,primary_role,role,active,membership_status,last_seen_at,created_at').eq('clan_id',clan.id).order('created_at',{ascending:true}); setMembers(rows||[]); setError(e?.message||''); setLoading(false);
   };
-  useEffect(()=>{let live=true;(async()=>{await load();})();return()=>{live=false}},[clan?.id,data.players.length]);
+  useEffect(()=>{
+    load();
+    if(!supabase||!clan?.id)return;
+    const ch=supabase.channel(`members-${clan.id}`).on('postgres_changes',{event:'*',schema:'public',table:'clan_members',filter:`clan_id=eq.${clan.id}`},()=>load()).subscribe();
+    return ()=>{supabase.removeChannel(ch)};
+  },[clan?.id,data.players.length]);
+
   const admin=canManageMembers(clan);
   const filtered=members.filter(m=>{
     const text=`${m.callsign||''} ${m.primary_role||''} ${m.role||''}`.toLowerCase();
@@ -1459,9 +1485,10 @@ function Wiki({data,clan,user}){
     setBusy(true);setError('');
     try{
       const tags=form.tags.split(',').map(x=>x.trim()).filter(Boolean);
-      const payload={title:form.title.trim(),category:form.category,body:form.body.trim(),tags,owner_id:user?.id,updated_at:new Date().toISOString()};
+      const payload={title:form.title.trim(),category:form.category,body:form.body.trim(),tags,updated_at:new Date().toISOString()};
+      const createPayload={clan_id:clan.id,...payload,owner_id:user?.id,created_at:new Date().toISOString()};
       if(selected){const {error:e1}=await supabase.from('wiki_articles').update(payload).eq('id',selected).eq('clan_id',clan.id);if(e1)throw e1;}
-      else{const {error:e1}=await supabase.from('wiki_articles').insert({clan_id:clan.id,...payload,created_at:new Date().toISOString()});if(e1)throw e1;}
+      else{const {error:e1}=await supabase.from('wiki_articles').insert(createPayload);if(e1)throw e1;}
       await load();openArticle(null);
     }catch(e){setError(e.message||'Could not save article.')}finally{setBusy(false)}
   }
@@ -1503,6 +1530,6 @@ function AAR({data,setData}){
 const root = createRoot(document.getElementById('root'));
 root.render(
   <BrowserRouter>
-    <App />
+    <AppErrorBoundary><App /></AppErrorBoundary>
   </BrowserRouter>
 );
