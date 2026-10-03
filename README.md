@@ -28,7 +28,6 @@ The live web app uses Supabase Auth/Postgres and Vercel. Real clans do not depen
 - Realtime updates for shared workspace, activity, members, squads, calendar, training and wiki
 - Relational Supabase records for operations, squads, roster assignments, strategy, maps, briefings, receipts and AAR
 - Production build verification through GitHub Actions
-- Operational audit logging for key personnel, scheduling and knowledge-base changes
 
 ## Local development
 
