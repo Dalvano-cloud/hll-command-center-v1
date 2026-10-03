@@ -948,7 +948,7 @@ function OperationAAR({op,setData}){const a=op.aarData||{}; function upd(p){setD
 
 function Input({label,value,onChange,placeholder}){return <label className="field"><span>{label}</span><input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}/></label>}
 
-function Calendar({data,setData,clan}){
+function Calendar({data,setData,clan,user}){
   const command=canCommand(clan);
   const [events,setEvents]=useState([]);
   const [operations,setOperations]=useState([]);
@@ -974,7 +974,7 @@ function Calendar({data,setData,clan}){
   useEffect(()=>{
     load();
     if(!supabase||!clan?.id)return;
-    const ch=supabase.channel(`wiki-${clan.id}`).on('postgres_changes',{event:'*',schema:'public',table:'wiki_articles',filter:`clan_id=eq.${clan.id}`},()=>load()).subscribe();
+    const ch=supabase.channel(`calendar-${clan.id}`).on('postgres_changes',{event:'*',schema:'public',table:'events',filter:`clan_id=eq.${clan.id}`},()=>load()).subscribe();
     return ()=>{supabase.removeChannel(ch)};
   },[clan?.id]);
 
@@ -1005,7 +1005,7 @@ function Calendar({data,setData,clan}){
     try{
       const start=new Date(`${form.date}T${form.time}:00`);
       const end=new Date(start.getTime()+(Number(form.duration)||90)*60000);
-      const payload={clan_id:clan.id,title:form.title.trim(),event_type:form.event_type,starts_at:start.toISOString(),ends_at:end.toISOString(),location:form.location.trim()||null,notes:form.notes.trim()||null,operation_id:form.operation_id||null,created_by:user?.id||clan?.user_id};
+      const payload={clan_id:clan.id,title:form.title.trim(),event_type:form.event_type,starts_at:start.toISOString(),ends_at:end.toISOString(),location:form.location.trim()||null,notes:form.notes.trim()||null,operation_id:form.operation_id||null,created_by:user?.id};
       if(editing){
         const {error:e1}=await supabase.from('events').update({title:payload.title,event_type:payload.event_type,starts_at:payload.starts_at,ends_at:payload.ends_at,location:payload.location,notes:payload.notes,operation_id:payload.operation_id}).eq('id',editing).eq('clan_id',clan.id);
         if(e1)throw e1;
@@ -1341,17 +1341,44 @@ function SquadHub({clan,user}){
       setSquads(s||[]); setMembers(m||[]); setAssignments(a||[]); setPreferences(p||[]);
     }catch(e){setError(e.message||'Could not load squad hub.');}finally{setLoading(false)}
   }
-  useEffect(()=>{load()},[clan?.id]);
+  useEffect(()=>{
+    load();
+    if(!supabase||!clan?.id)return;
+    const ch=supabase.channel(`squads-${clan.id}`)
+      .on('postgres_changes',{event:'*',schema:'public',table:'clan_squads',filter:`clan_id=eq.${clan.id}`},()=>load())
+      .on('postgres_changes',{event:'*',schema:'public',table:'clan_squad_members',filter:`clan_id=eq.${clan.id}`},()=>load())
+      .on('postgres_changes',{event:'*',schema:'public',table:'clan_member_preferences',filter:`clan_id=eq.${clan.id}`},()=>load())
+      .on('postgres_changes',{event:'*',schema:'public',table:'clan_members',filter:`clan_id=eq.${clan.id}`},()=>load())
+      .subscribe();
+    return ()=>{supabase.removeChannel(ch)};
+  },[clan?.id]);
   const memberByUser=useMemo(()=>Object.fromEntries(members.map(m=>[m.user_id,m])),[members]);
   const assignedByUser=useMemo(()=>Object.fromEntries(assignments.map(a=>[a.user_id,a])),[assignments]);
   const preferenceByMember=useMemo(()=>Object.fromEntries(preferences.map(p=>[p.member_id,p.squad_preference])),[preferences]);
-  async function createSquad(){
-    if(!command||!supabase)return; const name=window.prompt('Squad name','Alpha'); if(!name?.trim())return; const short=window.prompt('Short code','A'); if(!short?.trim())return;
-    setBusy(true); setError(''); try{const {error:e}=await supabase.from('clan_squads').insert({clan_id:clan.id,name:name.trim(),short_code:short.trim().toUpperCase(),created_by:user.id,sort_order:squads.length}); if(e)throw e; await load();}catch(e){setError(e.message||'Could not create squad.')}finally{setBusy(false)}
+  const [squadEditor,setSquadEditor]=useState(null);
+  function openSquadEditor(s=null){
+    setError('');
+    setSquadEditor(s?{id:s.id,name:s.name||'',short_code:s.short_code||''}:{id:null,name:'',short_code:''});
   }
-  async function editSquad(s){
-    if(!command||!supabase)return; const name=window.prompt('Squad name',s.name); if(!name?.trim())return; const short=window.prompt('Short code',s.short_code); if(!short?.trim())return;
-    setBusy(true); setError(''); try{const {error:e}=await supabase.from('clan_squads').update({name:name.trim(),short_code:short.trim().toUpperCase(),updated_at:new Date().toISOString()}).eq('id',s.id).eq('clan_id',clan.id); if(e)throw e; await load();}catch(e){setError(e.message||'Could not update squad.')}finally{setBusy(false)}
+  async function saveSquad(e){
+    e?.preventDefault();
+    if(!command||!supabase)return;
+    const name=squadEditor?.name?.trim()||'';
+    const short=squadEditor?.short_code?.trim().toUpperCase()||'';
+    if(!name||!short){setError('Squad name and short code are required.');return;}
+    if(short.length>6){setError('Short code must be 6 characters or fewer.');return;}
+    setBusy(true); setError('');
+    try{
+      if(squadEditor.id){
+        const {error:e1}=await supabase.from('clan_squads').update({name,short_code:short,updated_at:new Date().toISOString()}).eq('id',squadEditor.id).eq('clan_id',clan.id);
+        if(e1)throw e1;
+      }else{
+        const {error:e1}=await supabase.from('clan_squads').insert({clan_id:clan.id,name,short_code:short,created_by:user.id,sort_order:squads.length});
+        if(e1)throw e1;
+      }
+      setSquadEditor(null);
+      await load();
+    }catch(e){setError(e.message||'Could not save squad.')}finally{setBusy(false)}
   }
   async function deleteSquad(s){
     if(!command||!supabase)return; if(!window.confirm(`Delete ${s.name}? Members will become unassigned.`))return; setBusy(true); setError(''); try{const {error:e}=await supabase.from('clan_squads').delete().eq('id',s.id).eq('clan_id',clan.id); if(e)throw e; await load();}catch(e){setError(e.message||'Could not delete squad.')}finally{setBusy(false)}
@@ -1369,7 +1396,7 @@ function SquadHub({clan,user}){
   const assignedCount=assignments.length;
   const unassigned=members.filter(m=>!assignedByUser[m.user_id]);
   return <>
-    <PageHead eyebrow="PERSONNEL COMMAND" title="SQUAD HUB" subtitle="DEFAULT SQUADS · LEADS · MEMBER ASSIGNMENTS" actions={command?<button className="btn primary" onClick={createSquad} disabled={busy}><Plus size={15}/> ADD SQUAD</button>:<Tag tone="yellow">READ ONLY</Tag>}/>
+    <PageHead eyebrow="PERSONNEL COMMAND" title="SQUAD HUB" subtitle="DEFAULT SQUADS · LEADS · MEMBER ASSIGNMENTS" actions={command?<button className="btn primary" onClick={()=>openSquadEditor()} disabled={busy}><Plus size={15}/> ADD SQUAD</button>:<Tag tone="yellow">READ ONLY</Tag>}/>
     {error&&<div className="error section">{error}</div>}
     <div className="grid g4">
       <Stat label="SQUADS" value={squads.length} sub="ACTIVE CLAN UNITS" trend={squads.length>0}/>
@@ -1377,9 +1404,10 @@ function SquadHub({clan,user}){
       <Stat label="ASSIGNED" value={assignedCount} sub="DEFAULT SQUAD" trend={assignedCount===members.length&&members.length>0}/>
       <Stat label="UNASSIGNED" value={unassigned.length} sub="NEEDS PLACEMENT" trend={unassigned.length===0}/>
     </div>
+    {squadEditor&&<div className="card form section"><div className="section-head"><div><h3>{squadEditor.id?'Edit squad':'Add squad'}</h3><span>DEFAULT CLAN UNIT</span></div><button className="btn" onClick={()=>setSquadEditor(null)} disabled={busy}>CANCEL</button></div><form onSubmit={saveSquad} className="stack"><div className="form-grid"><label className="field"><span>SQUAD NAME</span><input value={squadEditor.name} onChange={e=>setSquadEditor(x=>({...x,name:e.target.value}))} placeholder="Alpha" maxLength={32} required/></label><label className="field"><span>SHORT CODE</span><input value={squadEditor.short_code} onChange={e=>setSquadEditor(x=>({...x,short_code:e.target.value}))} placeholder="A" maxLength={6} required/></label></div><div className="actions"><button className="btn primary" disabled={busy}>{busy?(squadEditor.id?'SAVING…':'CREATING…'):(squadEditor.id?'SAVE SQUAD':'CREATE SQUAD')}</button></div></form></div>}
     <div className="grid g2 section">
       {squads.map(s=>{const squadMembers=assignments.filter(a=>a.squad_id===s.id).map(a=>memberByUser[a.user_id]).filter(Boolean); const lead=memberByUser[s.squad_lead_id]; return <div className="card" key={s.id}>
-        <div className="section-head"><div><h3>{s.name.toUpperCase()} <small>/{s.short_code}</small></h3><span>{squadMembers.length} MEMBERS</span></div>{command&&<div className="button-row"><button className="btn mini-action" onClick={()=>editSquad(s)} disabled={busy}>EDIT</button><button className="btn mini-action" onClick={()=>deleteSquad(s)} disabled={busy}>DELETE</button></div>}</div>
+        <div className="section-head"><div><h3>{s.name.toUpperCase()} <small>/{s.short_code}</small></h3><span>{squadMembers.length} MEMBERS</span></div>{command&&<div className="button-row"><button className="btn mini-action" onClick={()=>openSquadEditor(s)} disabled={busy}>EDIT</button><button className="btn mini-action" onClick={()=>deleteSquad(s)} disabled={busy}>DELETE</button></div>}</div>
         <div className="field"><span>SQUAD LEAD</span>{command?<select value={s.squad_lead_id||''} onChange={e=>setLead(s.id,e.target.value)} disabled={busy||!command}><option value="">— UNASSIGNED —</option>{members.filter(m=>m.role==='squad_lead'||m.role==='commander'||m.role==='co').map(m=><option key={m.user_id} value={m.user_id}>{m.callsign||m.user_id.slice(0,8)}</option>)}</select>:<div className="readout">{lead?.callsign||'NO SL ASSIGNED'}</div>}</div>
         <div className="side-list">{squadMembers.length?squadMembers.map(m=><div className="row" key={m.user_id}><div><b>{m.callsign||'Unnamed player'}</b><small>{m.primary_role||'Rifleman'} · {ROLE_LABELS[m.role]||'PLAYER'}</small></div>{command&&<button className="btn mini-action" onClick={()=>assign(m.user_id,'')} disabled={busy}>REMOVE</button>}</div>):<div className="empty-state"><p>No members assigned to this default squad.</p></div>}</div>
       </div>})}
@@ -1571,7 +1599,12 @@ function Wiki({data,clan,user}){
     try{const {data:rows,error:e}=await supabase.from('wiki_articles').select('id,title,category,body,tags,owner_id,created_at,updated_at').eq('clan_id',clan.id).order('updated_at',{ascending:false});if(e)throw e;setArticles(rows||[]);}
     catch(e){setError(e.message||'Could not load clan wiki.')}finally{setLoading(false)}
   }
-  useEffect(()=>{load()},[clan?.id]);
+  useEffect(()=>{
+    load();
+    if(!supabase||!clan?.id)return;
+    const ch=supabase.channel(`wiki-${clan.id}`).on('postgres_changes',{event:'*',schema:'public',table:'wiki_articles',filter:`clan_id=eq.${clan.id}`},()=>load()).subscribe();
+    return ()=>{supabase.removeChannel(ch)};
+  },[clan?.id]);
 
   const filtered=articles.filter(a=>`${a.title} ${a.category} ${a.body} ${(a.tags||[]).join(' ')}`.toLowerCase().includes(q.toLowerCase()));
   const stats={map:articles.filter(a=>a.category==='MAP').length,sop:articles.filter(a=>a.category==='SOP').length,tactical:articles.filter(a=>['TACTICAL','RECON','ARMOR'].includes(a.category)).length};
