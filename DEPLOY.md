@@ -1,68 +1,29 @@
-# HLL Command Center — publiceren
+# HLL Command Center — production deployment
 
-## 1. Supabase
+## Supabase
 
-De bestaande database moet éénmalig `supabase/PRODUCTION-FIX.sql` krijgen via **Supabase → SQL Editor → Run**.
+The production database is already migrated. Use the current Supabase project and current migrations; do not use the legacy one-off SQL as a deployment step.
 
-De frontend gebruikt alleen:
+The frontend requires VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.
 
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_PUBLISHABLE_KEY`
+Never use a service_role or other secret key in Vercel frontend variables.
 
-Gebruik nooit een `service_role` of secret key in de frontend.
+## Vercel
 
-## 2. GitHub
+Import the GitHub repository and deploy the main branch.
 
-Maak op GitHub een nieuwe repository, bijvoorbeeld `hll-command-center`.
-Upload de inhoud van deze map naar de repository.
+Set the two environment variables above for Production (and Preview/Development when needed).
 
-## 3. Vercel
+After environment changes, redeploy the latest main commit.
 
-Importeer de GitHub repository in Vercel.
-Vercel detecteert Vite automatisch.
+## Supabase Auth
 
-Voeg bij **Project Settings → Environment Variables** toe:
+Set the production Vercel domain as the Site URL and add the required redirect URL(s).
 
-```text
-VITE_SUPABASE_URL=https://JOUW-PROJECT.supabase.co
-VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
-```
+For production password security, enable leaked-password protection in Supabase Auth.
 
-Gebruik de variabelen voor Production, Preview en Development als je alle omgevingen wilt laten werken.
+## Release check
 
-Daarna **Redeploy**.
+GitHub Actions must show a green Build workflow for the release commit.
 
-## 4. Supabase Auth URL
-
-Na de eerste Vercel-deploy:
-
-Supabase → Authentication → URL Configuration
-
-- Site URL: je echte Vercel-domein
-- Redirect URLs: voeg hetzelfde Vercel-domein toe
-
-## 5. Eerste login
-
-Open de website → CREATE ACCOUNT → bevestig e-mail indien gevraagd → SIGN IN → maak de clan aan.
-
-## 6. Wat deze versie al doet
-
-- dashboard
-- operations
-- operation detail
-- kalender
-- roster
-- squads
-- strategy/orders
-- interactieve stage maps
-- individuele briefings
-- wiki/SOPs
-- AAR
-- Supabase-authenticatie
-- gedeelde cloud workspace per clan
-- live synchronisatie van de gedeelde workspace
-- onboarding voor een nieuwe clan
-
-## 7. Belangrijk
-
-De huidige v1 bewaart het actieve workspace-model als één JSON-document per clan (`clan_app_state`). De relationele tabellen zijn al aanwezig voor de volgende stap: fijnmazige squad/player/operation-permissies, uitnodigingen en echte genormaliseerde CRUD.
+Then verify in the browser: sign in/out, clan onboarding, member approval, operation creation, attendance, squad assignment, strategy, stage maps, briefings and acknowledgement, READY/ACTIVE lifecycle, calendar, wiki, AAR and cross-clan isolation.
