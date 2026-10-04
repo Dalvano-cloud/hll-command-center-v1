@@ -146,12 +146,23 @@ async function syncOperationRelations({clanId,user,role,op,players}){
     if(op.aarData && Object.values(op.aarData).some(Boolean)){
       const {error}=await supabase.from('aars').upsert({operation_id:opRow.id,result:op.aarData.result||null,score:op.aarData.score||null,worked:op.aarData.worked||null,failed:op.aarData.failed||null,lessons_learned:op.aarData.lessons?[op.aarData.lessons]:[],created_by:user.id,updated_at:new Date().toISOString()},{onConflict:'operation_id'}); if(error) throw error;
     }
+    const confirmed=(assignments||[]).filter(a=>a.attendance==='going').length;
+    const total=(assignments||[]).length;
+    const briefingList=Object.values(op.briefingsByPlayer||{}).filter(Boolean);
+    const published=briefingList.filter(b=>b?.published).length;
+    const {error:metricError}=await supabase.from('operations').update({attendance_total:total,attendance_confirmed:confirmed,briefing_total:briefingList.length,briefing_published:published,updated_at:new Date().toISOString()}).eq('id',opRow.id).eq('clan_id',clanId);
+    if(metricError) throw metricError;
   } else if(isPlayerRole){
     const me=players.find(p=>p.memberUserId===user.id);
     if(me){
       const attendance=(op.attendanceByPlayer||{})[me.id]||'maybe';
       const {data:existing}=await supabase.from('roster_assignments').select('squad_id,role,ready').eq('operation_id',opRow.id).eq('user_id',user.id).maybeSingle();
       const {error}=await supabase.from('roster_assignments').upsert({operation_id:opRow.id,squad_id:existing?.squad_id||null,user_id:user.id,role:existing?.role||me.role||'Rifleman',attendance,ready:existing?.ready||false},{onConflict:'operation_id,user_id'}); if(error) throw error;
+      const {data:metrics,error:metricError}=await supabase.from('roster_assignments').select('attendance').eq('operation_id',opRow.id);
+      if(metricError) throw metricError;
+      const total=(metrics||[]).length, confirmed=(metrics||[]).filter(a=>a.attendance==='going').length;
+      const {error:opMetricError}=await supabase.from('operations').update({attendance_total:total,attendance_confirmed:confirmed,updated_at:new Date().toISOString()}).eq('id',opRow.id);
+      if(opMetricError) throw opMetricError;
     }
   }
 }
