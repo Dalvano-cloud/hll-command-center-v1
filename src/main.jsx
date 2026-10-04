@@ -101,6 +101,9 @@ async function syncOperationRelations({clanId,user,role,op,players}){
     const squadRows=(op.squads||[]).map(s=>({operation_id:opRow.id,name:s.name,color:s.color||null,squad_lead_id:players.find(p=>p.id===s.lead||p.memberUserId===s.lead||p.name===s.lead)?.memberUserId||null}));
     if(squadRows.length){ const {error}=await supabase.from('squads').upsert(squadRows,{onConflict:'operation_id,name'}); if(error) throw error; }
     const {data:dbSquads,error:sqErr}=await supabase.from('squads').select('id,name,squad_lead_id').eq('operation_id',opRow.id); if(sqErr) throw sqErr;
+    const desiredSquadNames=new Set(squadRows.map(x=>x.name));
+    const staleSquads=(dbSquads||[]).filter(x=>!desiredSquadNames.has(x.name));
+
     const squadIdByName=Object.fromEntries((dbSquads||[]).map(s=>[s.name,s.id]));
     const {error:delAssign}=await supabase.from('roster_assignments').delete().eq('operation_id',opRow.id); if(delAssign) throw delAssign;
     // Only write real Supabase users from the current clan. Deduplicate by user_id so the
@@ -143,9 +146,16 @@ async function syncOperationRelations({clanId,user,role,op,players}){
 
     const briefingRows=Object.entries(op.briefingsByPlayer||{}).map(([pid,b])=>({operation_id:opRow.id,scope:'individual',squad_id:null,player_id:pid,title:b?.title||'',body:b?.body||'',checklist:b?.checklist||[],published_at:b?.published?b.publishedAt||new Date().toISOString():null,updated_by:user.id,updated_at:new Date().toISOString()})).filter(x=>x.player_id);
     if(briefingRows.length){ const {error}=await supabase.from('briefings').upsert(briefingRows,{onConflict:'operation_id,player_id'}); if(error) throw error; }
+    const desiredBriefingPlayers=new Set(briefingRows.map(x=>x.player_id));
+    const {data:existingBriefings,error:existingBriefingsError}=await supabase.from('briefings').select('id,player_id').eq('operation_id',opRow.id);
+    if(existingBriefingsError) throw existingBriefingsError;
+    const staleBriefingIds=(existingBriefings||[]).filter(x=>!desiredBriefingPlayers.has(x.player_id)).map(x=>x.id);
+    if(staleBriefingIds.length){ const {error}=await supabase.from('briefings').delete().in('id',staleBriefingIds); if(error) throw error; }
     if(op.aarData && Object.values(op.aarData).some(Boolean)){
       const {error}=await supabase.from('aars').upsert({operation_id:opRow.id,result:op.aarData.result||null,score:op.aarData.score||null,worked:op.aarData.worked||null,failed:op.aarData.failed||null,lessons_learned:op.aarData.lessons?[op.aarData.lessons]:[],created_by:user.id,updated_at:new Date().toISOString()},{onConflict:'operation_id'}); if(error) throw error;
     }
+    const staleSquadIds=staleSquads.map(x=>x.id);
+    if(staleSquadIds.length){ const {error}=await supabase.from('squads').delete().in('id',staleSquadIds); if(error) throw error; }
     const confirmed=(assignments||[]).filter(a=>a.attendance==='going').length;
     const total=(assignments||[]).length;
     const briefingList=Object.values(op.briefingsByPlayer||{}).filter(Boolean);
