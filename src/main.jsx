@@ -733,6 +733,7 @@ function Operations({data,setData,clan}){
     }catch(e){ console.warn('Could not load clan squad defaults; creating empty operation squads.',e); }
     const op=makeOperation({...draft,id,commander:'Command',squads:templateSquads} ,0);
     setData(d=>({...d,ops:[op,...d.ops]}));
+    if(supabase&&clan?.id) logActivity(clan.id,'operation_created','Operation created','#'+id+' · '+op.name,null,null,{number:Number(id),map:op.map,mode:op.mode});
     setCreating(false); setDraft({name:'',opponent:'',map:'',mode:'Warfare',date:new Date().toISOString().slice(0,10),time:'20:00'});
     navigate(`/operations/${id}`);
   }
@@ -788,10 +789,14 @@ function OperationDetail({data,setData,user,clan}){
   const readiness=operationReadiness(op,data);
   const update=(patch)=>setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?{...x,...patch}:x)}));
   const transition=()=>{
-    if(op.status==='draft'){if(readiness.isReady)update({status:'ready'});return;}
-    if(op.status==='ready'){update({status:'active'});return;}
-    if(op.status==='active'){update({status:'archived'});return;}
-    update({status:'draft'});
+    let next=null;
+    if(op.status==='draft'){if(readiness.isReady)next='ready';}
+    else if(op.status==='ready')next='active';
+    else if(op.status==='active')next='archived';
+    else if(op.status==='archived')next='draft';
+    if(!next)return;
+    update({status:next});
+    if(supabase&&clan?.id) logActivity(clan.id,'operation_status_changed','Operation status changed','#'+op.id+' · '+op.status.toUpperCase()+' → '+next.toUpperCase(),op.dbId||null,null,{from:op.status,to:next});
   };
   const nested=()=>setData(d=>({...d,ops:d.ops.map(x=>x.id===op.id?makeOperation(x):x)}));
   const attendanceValues=Object.values(op.attendanceByPlayer||{});
