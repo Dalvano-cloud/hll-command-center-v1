@@ -217,7 +217,7 @@ async function loadRelationalOperations(clanId,baseData,members){
     const date=row.scheduled_at?new Date(row.scheduled_at).toISOString().slice(0,10):new Date().toISOString().slice(0,10);
     const time=row.scheduled_at?new Date(row.scheduled_at).toISOString().slice(11,16):'20:00';
     const commander=memberById[row.commander_id]?.name||'Command';
-    return makeOperation({id:String(row.number).padStart(3,'0'),dbId:row.id,name:row.name,opponent:row.opponent,map:row.map_name,mode:row.game_mode,date,time,status:row.status,strategy:row.strategy_status,commander,attendanceByPlayer,squads,strategyData:{intent:row.commander_intent||'',orders:row.global_orders||'',phases:phases.length?phases:DEFAULT_PHASES.map(p=>({...p,tasks:[]}))},stageMaps:stageMaps.length?stageMaps:DEFAULT_PHASES.map(p=>({phaseNo:p.no,name:p.name,markers:[]})),briefingsByPlayer:briefByOp[row.id]||{},aarData:aarByOp[row.id]||{}},i);
+    return makeOperation({id:String(row.number).padStart(3,'0'),dbId:row.id,name:row.name,opponent:row.opponent,map:row.map_name,mode:row.game_mode,date,time,status:row.status,strategy:row.strategy_status,attendance:`${row.attendance_confirmed||0}/${row.attendance_total||0}`,briefing:`${row.briefing_published||0}/${row.briefing_total||0}`,commander,attendanceByPlayer,squads,strategyData:{intent:row.commander_intent||'',orders:row.global_orders||'',phases:phases.length?phases:DEFAULT_PHASES.map(p=>({...p,tasks:[]}))},stageMaps:stageMaps.length?stageMaps:DEFAULT_PHASES.map(p=>({phaseNo:p.no,name:p.name,markers:[]})),briefingsByPlayer:briefByOp[row.id]||{},aarData:aarByOp[row.id]||{}},i);
   });
   return {...baseData,ops:transformed,players:members};
 }
@@ -434,7 +434,7 @@ function Shell({session,store}){
   ].map(([to,label,Icon])=><NavLink key={to} to={to} onClick={()=>setSidebar(false)} className={({isActive})=>isActive?'navitem active':'navitem'}><Icon size={17}/><span>{label}</span></NavLink>)}</nav><div className="side-bottom"><div className="online"><i/>SYSTEM ONLINE</div><div>{clan?.name || 'HLL Demo Clan'}</div><div className="muted">{supabase ? 'SUPABASE CONNECTED' : 'LOCAL DEMO MODE'}</div></div></aside><main><header className="topbar"><button className="mobile-menu" onClick={()=>setSidebar(v=>!v)}><Menu/></button><TopCrumb/><div className="top-right"><button className="iconbtn" onClick={()=>navigate('/activity')} title="Command Feed"><Bell size={16}/>{activityCount>0&&<em className="activity-badge">{activityCount>99?'99+':activityCount}</em>}</button><button className="profile profile-clickable" onClick={()=>navigate('/profile')} title="Edit profile"><div className="avatar">{displayName.slice(0,1).toUpperCase()}</div><div><b>{displayName}</b><span>{(clan?.role || DEMO_USER.role).toUpperCase()}</span></div></button><button className="iconbtn" onClick={logout} title="Log out"><LogOut size={15}/></button></div></header><div className="content">
       {store.error&&<div className="global-error"><AlertTriangle size={14}/><span>{store.error}</span><button className="linkbtn" onClick={()=>setError('')}>DISMISS</button></div>}
       <Routes>
-    <Route path="/reset-password" element={<ResetPassword/>}/><Route path="/" element={<Dashboard data={data} clan={clan}/>}/><Route path="/my-operation" element={<MyOperation data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/operations" element={<Operations data={data} setData={setData} clan={clan}/>}/><Route path="/operations/:id" element={<OperationDetail data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/calendar" element={<Calendar data={data} setData={setData} clan={clan} user={user}/>}/><Route path="/roster" element={<Roster clan={clan} user={user} data={data} setData={setData}/>}/><Route path="/squads" element={<SquadHub clan={clan} user={user}/>}/><Route path="/members" element={<Members clan={clan} user={user} data={data} setClan={store.setClan}/>}/><Route path="/members/:memberId" element={<MemberProfile clan={clan} user={user}/>}/><Route path="/training" element={<TrainingHub clan={clan} user={user}/>}/><Route path="/settings" element={canCommand(clan)?<ClanSettings clan={clan} setClan={store.setClan}/>:<PermissionCard clan={clan} title="CLAN SETTINGS CONTROLLED" text="Only Commander and CO roles can edit clan settings."/>}/><Route path="/strategy" element={canCommand(clan)?<Strategy data={data} setData={setData}/>:<PermissionCard clan={clan} title="STRATEGY CONTROLLED" text="Commander and CO roles can build and publish clan strategy."/>}/><Route path="/maps" element={canCommand(clan)?<Maps data={data} setData={setData}/>:<PermissionCard clan={clan} title="STAGE MAPS CONTROLLED" text="Command roles manage the tactical map workspace."/>}/><Route path="/briefings" element={canCommand(clan)?<Briefings data={data} setData={setData}/>:<PermissionCard clan={clan} title="BRIEFINGS CONTROLLED" text="Command roles publish player briefings."/>}/><Route path="/activity" element={<ActivityFeed clan={clan} user={user} data={data}/>}/><Route path="/command-room" element={<CommandRoom clan={clan} user={user} data={data}/>}/><Route path="/wiki" element={<Wiki data={data} clan={clan} user={user}/>}/><Route path="/aar" element={canCommand(clan)?<AAR data={data} setData={setData}/>:<PermissionCard clan={clan} title="AAR CONTROLLED" text="Command roles own the official after-action review."/>}/><Route path="/profile" element={<Profile user={user} clan={clan} store={store}/>}/><Route path="*" element={<NotFound/>}/>
+    <Route path="/reset-password" element={<ResetPassword/>}/><Route path="/" element={<Dashboard data={data} clan={clan}/>}/><Route path="/my-operation" element={<MyOperation data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/operations" element={<Operations data={data} setData={setData} clan={clan} user={user}/>}/><Route path="/operations/:id" element={<OperationDetail data={data} setData={setData} user={user} clan={clan}/>}/><Route path="/calendar" element={<Calendar data={data} setData={setData} clan={clan} user={user}/>}/><Route path="/roster" element={<Roster clan={clan} user={user} data={data} setData={setData}/>}/><Route path="/squads" element={<SquadHub clan={clan} user={user}/>}/><Route path="/members" element={<Members clan={clan} user={user} data={data} setClan={store.setClan}/>}/><Route path="/members/:memberId" element={<MemberProfile clan={clan} user={user}/>}/><Route path="/training" element={<TrainingHub clan={clan} user={user}/>}/><Route path="/settings" element={canCommand(clan)?<ClanSettings clan={clan} setClan={store.setClan}/>:<PermissionCard clan={clan} title="CLAN SETTINGS CONTROLLED" text="Only Commander and CO roles can edit clan settings."/>}/><Route path="/strategy" element={canCommand(clan)?<Strategy data={data} setData={setData}/>:<PermissionCard clan={clan} title="STRATEGY CONTROLLED" text="Commander and CO roles can build and publish clan strategy."/>}/><Route path="/maps" element={canCommand(clan)?<Maps data={data} setData={setData}/>:<PermissionCard clan={clan} title="STAGE MAPS CONTROLLED" text="Command roles manage the tactical map workspace."/>}/><Route path="/briefings" element={canCommand(clan)?<Briefings data={data} setData={setData}/>:<PermissionCard clan={clan} title="BRIEFINGS CONTROLLED" text="Command roles publish player briefings."/>}/><Route path="/activity" element={<ActivityFeed clan={clan} user={user} data={data}/>}/><Route path="/command-room" element={<CommandRoom clan={clan} user={user} data={data}/>}/><Route path="/wiki" element={<Wiki data={data} clan={clan} user={user}/>}/><Route path="/aar" element={canCommand(clan)?<AAR data={data} setData={setData}/>:<PermissionCard clan={clan} title="AAR CONTROLLED" text="Command roles own the official after-action review."/>}/><Route path="/profile" element={<Profile user={user} clan={clan} store={store}/>}/><Route path="*" element={<NotFound/>}/>
   </Routes></div></main></div>
 }
 
@@ -701,45 +701,69 @@ function Dashboard({data,clan}){
   </>;
 }
 
-function Operations({data,setData,clan}){
+function Operations({data,setData,clan,user}){
   const command=canCommand(clan);
   const navigate=useNavigate();
   const [creating,setCreating]=useState(false);
+  const [createBusy,setCreateBusy]=useState(false);
+  const [createError,setCreateError]=useState('');
   const [draft,setDraft]=useState({name:'',opponent:'',map:'',mode:'Warfare',date:new Date().toISOString().slice(0,10),time:'20:00'});
   async function create(){
-    if(!command || !draft.name.trim()||!draft.map.trim()) return;
-    const id=String(40+data.ops.length+1).padStart(3,'0');
-    let templateSquads=[
-      {id:'alpha',name:'Alpha',lead:'',playerIds:[]},
-      {id:'bravo',name:'Bravo',lead:'',playerIds:[]},
-      {id:'charlie',name:'Charlie',lead:'',playerIds:[]},
-      {id:'delta',name:'Delta',lead:'',playerIds:[]}
-    ];
+    if(!command || !draft.name.trim()||!draft.map.trim()||createBusy) return;
+    setCreateBusy(true);setCreateError('');
+    let dbId=null;
     try{
+      let nextNumber=Math.max(40,...(data.ops||[]).map(o=>Number(o.id)||0))+1;
+      let templateSquads=[
+        {id:'alpha',name:'Alpha',lead:'',playerIds:[]},
+        {id:'bravo',name:'Bravo',lead:'',playerIds:[]},
+        {id:'charlie',name:'Charlie',lead:'',playerIds:[]},
+        {id:'delta',name:'Delta',lead:'',playerIds:[]}
+      ];
       if(supabase && clan?.id){
-        const [{data:defaults,error:de},{data:members,error:me}]=await Promise.all([
+        const [{data:latest,error:latestError},{data:defaults,error:de},{data:members,error:me}]=await Promise.all([
+          supabase.from('operations').select('number').eq('clan_id',clan.id).order('number',{ascending:false}).limit(1),
           supabase.from('clan_squads').select('id,name,short_code,squad_lead_id,sort_order,active').eq('clan_id',clan.id).eq('active',true).order('sort_order').order('name'),
           supabase.from('clan_squad_members').select('squad_id,user_id').eq('clan_id',clan.id)
         ]);
-        if(de) throw de; if(me) throw me;
+        if(latestError)throw latestError;
+        if(de)throw de;
+        if(me)throw me;
+        nextNumber=Math.max(nextNumber,Number(latest?.[0]?.number||40)+1);
         if(defaults?.length){
           const userToPlayer=new Map((data.players||[]).filter(p=>p.memberUserId).map(p=>[p.memberUserId,p.id]));
-          templateSquads=defaults.map((s,i)=>({
-            id:`tpl-${s.id}`, name:s.name, lead:userToPlayer.get(s.squad_lead_id)||'', playerIds:(members||[]).filter(m=>m.squad_id===s.id).map(m=>userToPlayer.get(m.user_id)).filter(Boolean),
-            clanSquadId:s.id, shortCode:s.short_code||'', sortOrder:s.sort_order??i
+          templateSquads=defaults.map((sq,i)=>({
+            id:`tpl-${sq.id}`,name:sq.name,lead:userToPlayer.get(sq.squad_lead_id)||'',
+            playerIds:(members||[]).filter(m=>m.squad_id===sq.id).map(m=>userToPlayer.get(m.user_id)).filter(Boolean),
+            clanSquadId:sq.id,shortCode:sq.short_code||'',sortOrder:sq.sort_order??i
           }));
         }
       }
-    }catch(e){ console.warn('Could not load clan squad defaults; creating empty operation squads.',e); }
-    const op=makeOperation({...draft,id,commander:'Command',squads:templateSquads} ,0);
-    setData(d=>({...d,ops:[op,...d.ops]}));
-    if(supabase&&clan?.id) logActivity(clan.id,'operation_created','Operation created','#'+id+' · '+op.name,null,null,{number:Number(id),map:op.map,mode:op.mode});
-    setCreating(false); setDraft({name:'',opponent:'',map:'',mode:'Warfare',date:new Date().toISOString().slice(0,10),time:'20:00'});
-    navigate(`/operations/${id}`);
+      const id=String(nextNumber).padStart(3,'0');
+      const scheduledAt=draft.date?new Date(`${draft.date}T${draft.time||'20:00'}:00`).toISOString():null;
+      if(supabase&&clan?.id){
+        const {data:createdRow,error:insertError}=await supabase.from('operations').insert({
+          clan_id:clan.id,number:nextNumber,name:draft.name.trim(),opponent:draft.opponent.trim()||null,
+          map_name:draft.map.trim(),game_mode:draft.mode.trim()||'Warfare',scheduled_at:scheduledAt,status:'draft',
+          commander_id:user?.id||null,created_by:user?.id||null,updated_at:new Date().toISOString()
+        }).select('id,number').single();
+        if(insertError)throw insertError;
+        dbId=createdRow.id;
+      }
+      const op=makeOperation({...draft,id,dbId,commander:'Command',squads:templateSquads},0);
+      setData(d=>({...d,ops:[op,...d.ops]}));
+      if(supabase&&clan?.id) logActivity(clan.id,'operation_created','Operation created','#'+id+' · '+op.name,dbId,null,{number:nextNumber,map:op.map,mode:op.mode});
+      setCreating(false);
+      setDraft({name:'',opponent:'',map:'',mode:'Warfare',date:new Date().toISOString().slice(0,10),time:'20:00'});
+      navigate(`/operations/${id}`);
+    }catch(e){
+      const message=e?.message||'Could not create operation.';
+      setCreateError(message.includes('operations_clan_id_number_key')?'Another operation was created at the same time. Refresh the page and try again.':message);
+    }finally{setCreateBusy(false)}
   }
   return <>
     <PageHead eyebrow="OPERATIONS" title="MATCH WORKSPACE" subtitle="ONE RECORD FOR EVERYTHING CONNECTED TO A MATCH" actions={command?<button className="btn primary" onClick={()=>setCreating(v=>!v)}><Plus size={15}/> NEW OPERATION</button>:<Tag tone="yellow">READ ONLY</Tag>}/>
-    {creating&&<div className="card section"><div className="section-head"><h3>New operation</h3><span>CREATE MISSION RECORD</span></div><div className="form-grid"><Input label="OPERATION NAME" value={draft.name} onChange={v=>setDraft(x=>({...x,name:v}))} placeholder="Carentan — Defense"/><Input label="OPPONENT" value={draft.opponent} onChange={v=>setDraft(x=>({...x,opponent:v}))} placeholder="4th Infantry"/><Input label="MAP" value={draft.map} onChange={v=>setDraft(x=>({...x,map:v}))} placeholder="Carentan"/><Input label="MODE" value={draft.mode} onChange={v=>setDraft(x=>({...x,mode:v}))} placeholder="Warfare"/><label className="field"><span>DATE</span><input type="date" value={draft.date} onChange={e=>setDraft(x=>({...x,date:e.target.value}))}/></label><label className="field"><span>TIME</span><input type="time" value={draft.time} onChange={e=>setDraft(x=>({...x,time:e.target.value}))}/></label></div><div className="callout"><Swords size={15}/> New operations automatically start from your clan's default squad roster. Command can still move players freely after creation.</div><div className="actions"><button className="btn" onClick={()=>setCreating(false)}>CANCEL</button><button className="btn primary" onClick={create}><Check size={15}/> CREATE OPERATION</button></div></div>}
+    {creating&&<div className="card section"><div className="section-head"><h3>New operation</h3><span>CREATE MISSION RECORD</span></div>{createError&&<div className="error section">{createError}</div>}<div className="form-grid"><Input label="OPERATION NAME" value={draft.name} onChange={v=>setDraft(x=>({...x,name:v}))} placeholder="Carentan — Defense"/><Input label="OPPONENT" value={draft.opponent} onChange={v=>setDraft(x=>({...x,opponent:v}))} placeholder="4th Infantry"/><Input label="MAP" value={draft.map} onChange={v=>setDraft(x=>({...x,map:v}))} placeholder="Carentan"/><Input label="MODE" value={draft.mode} onChange={v=>setDraft(x=>({...x,mode:v}))} placeholder="Warfare"/><label className="field"><span>DATE</span><input type="date" value={draft.date} onChange={e=>setDraft(x=>({...x,date:e.target.value}))}/></label><label className="field"><span>TIME</span><input type="time" value={draft.time} onChange={e=>setDraft(x=>({...x,time:e.target.value}))}/></label></div><div className="callout"><Swords size={15}/> New operations automatically start from your clan's default squad roster. Command can still move players freely after creation.</div><div className="actions"><button className="btn" onClick={()=>setCreating(false)}>CANCEL</button><button className="btn primary" onClick={create} disabled={createBusy}><Check size={15}/> {createBusy?'CREATING…':'CREATE OPERATION'}</button></div></div>}
     <div className="grid g3"><Stat label="ACTIVE OPERATIONS" value={data.ops.filter(o=>o.status==='active').length} sub="LIVE MATCH WORKSPACES" trend/><Stat label="NEXT EVENT" value={data.events[0]?.date?.slice(5)||'—'} sub={data.events[0]?.title||'NO EVENT'}/><Stat label="TOTAL RECORDS" value={data.ops.length} sub="MATCH HISTORY"/></div>
     <div className="card section"><div className="section-head"><h3>All operations</h3><span>{data.ops.length} RECORDS</span></div><table className="table"><thead><tr><th>OPERATION</th><th>OPPONENT</th><th>MAP</th><th>DATE</th><th>READINESS</th><th>STATUS</th></tr></thead><tbody>{data.ops.map(op=><tr key={op.id} onClick={()=>navigate(`/operations/${op.id}`)} className="clickrow"><td><b>#{op.id}</b> {op.name}</td><td>{op.opponent}</td><td>{op.map}</td><td>{op.date} · {op.time}</td><td>{operationReadiness(op,data).isReady?<Tag tone="green">READY</Tag>:<Tag tone={operationReadiness(op,data).percent>=60?'yellow':'red'}>{operationReadiness(op,data).percent}%</Tag>}</td><td>{op.status==='active'?<Tag tone="green">ACTIVE</Tag>:op.status==='ready'?<Tag tone="green">READY</Tag>:op.status==='draft'?<Tag tone="yellow">DRAFT</Tag>:<Tag>ARCHIVED</Tag>}</td></tr>)}</tbody></table></div>
   </>
