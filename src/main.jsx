@@ -85,6 +85,13 @@ function normalizeData(raw){
   return {...seed,...base,ops:(Array.isArray(base.ops)?base.ops:seed.ops).map((op,i)=>makeOperation(op,i)),players:Array.isArray(base.players)?base.players:seed.players,events:Array.isArray(base.events)?base.events:seed.events,briefings:base.briefings||{},strategy:base.strategy||seed.strategy,wiki:Array.isArray(base.wiki)?base.wiki:seed.wiki,aar:base.aar||seed.aar};
 }
 
+function stableStringify(value){
+  return JSON.stringify(value,(key,current)=>{
+    if(!current||typeof current!=='object'||Array.isArray(current))return current;
+    return Object.fromEntries(Object.keys(current).sort().map(k=>[k,current[k]]));
+  });
+}
+
 async function syncOperationRelations({clanId,user,role,op,players}){
   if(!supabase || !clanId || !op) return;
   const command=['commander','co'].includes(role);
@@ -92,7 +99,7 @@ async function syncOperationRelations({clanId,user,role,op,players}){
   const number=Number(op.id);
   if(!Number.isFinite(number)) return;
   const scheduledAt=op.date ? `${op.date}T${op.time||'20:00'}:00` : null;
-  const baseRow={clan_id:clanId,number,name:op.name||'Untitled Operation',opponent:op.opponent||'',map_name:op.map||'',game_mode:op.mode||'Warfare',side:op.side||null,scheduled_at:scheduledAt,status:op.status||'draft',commander_id:players.find(p=>p.name===op.commander)?.memberUserId||user.id,strategy_status:op.strategyData?.intent?'ready':'draft',commander_intent:op.strategyData?.intent||'',global_orders:op.strategyData?.orders||'',created_by:user.id,updated_at:new Date().toISOString()};
+  const baseRow={clan_id:clanId,number,name:op.name||'Untitled Operation',opponent:op.opponent||'',map_name:op.map||'',game_mode:op.mode||'Warfare',side:op.side||null,scheduled_at:scheduledAt,status:op.status||'draft',commander_id:players.find(p=>p.name===op.commander)?.memberUserId||user.id,strategy_status:(!!op.strategyData?.intent?.trim()&&!!op.strategyData?.orders?.trim()&&(op.strategyData?.phases||[]).length>=4&&(op.strategyData?.phases||[]).every(p=>!!p.intent?.trim()&&(p.tasks||[]).some(task=>String(task).trim())))?'ready':'draft',commander_intent:op.strategyData?.intent||'',global_orders:op.strategyData?.orders||'',created_by:user.id,updated_at:new Date().toISOString()};
   const {data:opRow,error:opError}=await supabase.from('operations').upsert(baseRow,{onConflict:'clan_id,number'}).select('id,number').single();
   if(opError) throw opError;
   if(!opRow) return;
@@ -352,17 +359,17 @@ function useClanStore(user){
                     nextBriefings={...nextBriefings,[pid]:{...currentBrief,read:remoteBrief.read,readAt:remoteBrief.readAt,acknowledged:remoteBrief.acknowledged,acknowledgedAt:remoteBrief.acknowledgedAt}};
                   }
                 }
-                const sameAttendance=JSON.stringify(op.attendanceByPlayer||{})===JSON.stringify(remote.attendanceByPlayer||{});
-                const sameBriefings=JSON.stringify(op.briefingsByPlayer||{})===JSON.stringify(nextBriefings);
+                const sameAttendance=stableStringify(op.attendanceByPlayer||{})===stableStringify(remote.attendanceByPlayer||{});
+                const sameBriefings=stableStringify(op.briefingsByPlayer||{})===stableStringify(nextBriefings);
                 if(sameAttendance&&sameBriefings)return op;
                 changed=true;
                 return {...op,attendanceByPlayer:remote.attendanceByPlayer||{},briefingsByPlayer:nextBriefings};
               });
             }else{
               nextOps=refreshed.ops||[];
-              if(JSON.stringify(nextOps)!==JSON.stringify(current.ops||[]))changed=true;
+              if(stableStringify(nextOps)!==stableStringify(current.ops||[]))changed=true;
             }
-            const samePlayers=JSON.stringify(current.players||[])===JSON.stringify(players);
+            const samePlayers=stableStringify(current.players||[])===stableStringify(players);
             if(!samePlayers)changed=true;
             return changed?{...current,ops:nextOps,players}:current;
           });
