@@ -464,6 +464,7 @@ class AppErrorBoundary extends React.Component{
 function App(){
   const {session,loading}=useAuth();
   if(loading) return <div className="splash"><Shield size={36}/><div>INITIALIZING COMMAND SYSTEM</div></div>;
+  if(import.meta.env.PROD&&!supabase) return <div className="splash"><Shield size={36}/><div><div className="eyebrow">PRODUCTION CONFIGURATION</div><h2>BACKEND CONFIGURATION MISSING</h2><p className="muted">The production app cannot connect to Supabase. Configure VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in Vercel, then redeploy.</p></div></div>;
   if(!session) return <Login/>;
   return <AuthenticatedApp session={session}/>;
 }
