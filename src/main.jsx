@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, NavLink, Route, Routes, useLocation, useNavigate, useParams, Link } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
@@ -242,9 +242,11 @@ function useClanStore(user){
   const [pendingMembership,setPendingMembership]=useState(false);
   const [inactiveMembership,setInactiveMembership]=useState(false);
   const [hydrated,setHydrated]=useState(false);
+  const lastSyncedRef=useRef(null);
 
   useEffect(()=>{
     let cancelled=false;
+    lastSyncedRef.current=null;
     (async()=>{
       if(!supabase){
         const local=JSON.parse(localStorage.getItem('hll-command-data')||'null');
@@ -280,7 +282,7 @@ function useClanStore(user){
       base={...base,players:cloudPlayers,events:cloudEvents};
       try{
         const merged=await loadRelationalOperations(member.clan_id,base,cloudPlayers);
-        if(!cancelled){setClan(clanInfo);setData(merged);setNeedsOnboarding(false);setLoading(false);setHydrated(true);}
+        if(!cancelled){lastSyncedRef.current={data:merged,ops:merged.ops||[],players:merged.players||[]};setClan(clanInfo);setData(merged);setNeedsOnboarding(false);setLoading(false);setHydrated(true);}
       }catch(loadError){ if(!cancelled){setError(loadError.message||String(loadError));setLoading(false);setHydrated(true);} }
     })();
     return ()=>{cancelled=true};
@@ -295,21 +297,29 @@ function useClanStore(user){
   },[clan?.id,user?.id,loading,hydrated]);
 
   useEffect(()=>{
-    if(!clan || loading || !hydrated) return;
+    if(!clan || loading || !hydrated || pendingMembership || inactiveMembership) return;
     const timer=setTimeout(async()=>{
       if(!supabase){localStorage.setItem('hll-command-data',JSON.stringify(data));return;}
       const canWriteWorkspace=['commander','co'].includes(clan.role);
-      if(canWriteWorkspace){
-        const {error:upsertError}=await supabase.from('clan_app_state').upsert({clan_id:clan.id,data,updated_at:new Date().toISOString()},{onConflict:'clan_id'});
-        if(upsertError){setError(upsertError.message);return;}
-      }
+      const previous=lastSyncedRef.current;
+      const workspaceChanged=!previous||stableStringify(previous.data)!==stableStringify(data);
+      const playersChanged=!previous||stableStringify(previous.players||[])!==stableStringify(data.players||[]);
+      const opsToSync=(data.ops||[]).filter(op=>{
+        const old=previous?.ops?.find(item=>item.id===op.id);
+        return !previous||playersChanged||!old||stableStringify(old)!==stableStringify(op);
+      });
       try{
-        for(const op of data.ops||[]) await syncOperationRelations({clanId:clan.id,user,role:clan.role,op,players:data.players||[]});
+        if(canWriteWorkspace&&workspaceChanged){
+          const {error:upsertError}=await supabase.from('clan_app_state').upsert({clan_id:clan.id,data,updated_at:new Date().toISOString()},{onConflict:'clan_id'});
+          if(upsertError)throw upsertError;
+        }
+        for(const op of opsToSync) await syncOperationRelations({clanId:clan.id,user,role:clan.role,op,players:data.players||[]});
+        lastSyncedRef.current={data,ops:data.ops||[],players:data.players||[]};
         setError('');
       }catch(syncError){setError(syncError.message||String(syncError));}
     },900);
     return ()=>clearTimeout(timer);
-  },[data,clan?.id,clan?.role,hydrated,user?.id]);
+  },[data,clan?.id,clan?.role,hydrated,pendingMembership,inactiveMembership,user?.id]);
 
   useEffect(()=>{
     if(!supabase || !clan?.id || !['commander','co'].includes(clan.role)) return;
@@ -413,13 +423,13 @@ function useClanStore(user){
     const {error:memberError}=await supabase.from('clan_members').insert({clan_id:clanRow.id,user_id:user.id,role:'commander',callsign}); if(memberError) throw memberError;
     const empty={...seed,ops:[],events:[],players:[{id:user.id,memberUserId:user.id,name:callsign,squad:'Unassigned',role:'Commander',status:'ready'}],briefings:{},wiki:[],aar:{},strategy:{name:'',intent:'',orders:''}};
     const {error:stateError}=await supabase.from('clan_app_state').insert({clan_id:clanRow.id,data:empty}); if(stateError) throw stateError;
-    setClan({id:clanRow.id,name:clanRow.name,tag:clanRow.tag,inviteCode:clanRow.invite_code||'',role:'commander',callsign}); setData(empty); setNeedsOnboarding(false); setHydrated(true);
+    setClan({id:clanRow.id,name:clanRow.name,tag:clanRow.tag,inviteCode:clanRow.invite_code||'',role:'commander',callsign}); setData(empty); lastSyncedRef.current={data:empty,ops:[],players:empty.players||[]}; setNeedsOnboarding(false); setHydrated(true);
   }
   async function joinClan(inviteCode){
     if(!supabase){setClan({id:'demo-clan',name:'HLL Demo Clan',tag:'DEMO',inviteCode:'demo1234',role:'player',callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'});setNeedsOnboarding(false);return;}
     const {data:joined,error:joinError}=await supabase.rpc('join_clan_by_invite',{p_code:inviteCode}); if(joinError) throw joinError;
     const row=Array.isArray(joined)?joined[0]:joined; if(!row?.clan_id) throw new Error('Could not join clan.');
-    setClan({id:row.clan_id,name:row.clan_name,tag:row.clan_tag,inviteCode:inviteCode,role:row.member_role,callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'}); setData(normalizeData(seed)); setNeedsOnboarding(false); setPendingMembership(true); setInactiveMembership(false); setHydrated(true);
+    setClan({id:row.clan_id,name:row.clan_name,tag:row.clan_tag,inviteCode:inviteCode,role:row.member_role,callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'}); const emptyWorkspace={...seed,ops:[],events:[],players:[],briefings:{},wiki:[],aar:{},strategy:{name:'',intent:'',orders:''}}; setData(emptyWorkspace); lastSyncedRef.current={data:emptyWorkspace,ops:[],players:[]}; setNeedsOnboarding(false); setPendingMembership(true); setInactiveMembership(false); setHydrated(true);
   }
   return {data,setData,clan,setClan,setError,loading,error,needsOnboarding,pendingMembership,inactiveMembership,createClan,joinClan};
 }
