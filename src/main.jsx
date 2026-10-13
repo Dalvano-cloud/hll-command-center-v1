@@ -312,6 +312,93 @@ function useClanStore(user){
     return ()=>{supabase.removeChannel(channel)};
   },[clan?.id]);
 
+  useEffect(()=>{
+    if(!supabase||!clan?.id||loading||!hydrated||!user?.id)return;
+    let timer=null;
+    let cancelled=false;
+    let refreshing=false;
+    let pending=false;
+    const scheduleRefresh=()=>{
+      pending=true;
+      if(timer)clearTimeout(timer);
+      timer=setTimeout(async()=>{
+        timer=null;
+        if(cancelled)return;
+        if(refreshing)return;
+        refreshing=true;
+        pending=false;
+        try{
+          const {data:memberRows,error:memberError}=await supabase.from('clan_members')
+            .select('id,user_id,callsign,primary_role,role,active,membership_status,profiles(display_name)')
+            .eq('clan_id',clan.id).eq('active',true).eq('membership_status','active').order('created_at');
+          if(memberError)throw memberError;
+          const members=(memberRows||[]).map(m=>({id:m.user_id,name:m.callsign||m.profiles?.display_name||'Player',primary_role:m.primary_role,role:m.role}));
+          const players=buildMemberPlayers(members);
+          const refreshed=await loadRelationalOperations(clan.id,{ops:[]},players);
+          if(cancelled)return;
+          const command=['commander','co'].includes(clan.role);
+          setData(current=>{
+            let changed=false;
+            let nextOps=current.ops||[];
+            if(command){
+              nextOps=(current.ops||[]).map(op=>{
+                const remote=refreshed.ops?.find(x=>x.id===op.id);
+                if(!remote)return op;
+                let nextBriefings=op.briefingsByPlayer||{};
+                for(const [pid,remoteBrief] of Object.entries(remote.briefingsByPlayer||{})){
+                  const currentBrief=nextBriefings[pid];
+                  if(!currentBrief){nextBriefings={...nextBriefings,[pid]:remoteBrief};continue;}
+                  if(currentBrief.read!==remoteBrief.read||currentBrief.readAt!==remoteBrief.readAt||currentBrief.acknowledged!==remoteBrief.acknowledged||currentBrief.acknowledgedAt!==remoteBrief.acknowledgedAt){
+                    nextBriefings={...nextBriefings,[pid]:{...currentBrief,read:remoteBrief.read,readAt:remoteBrief.readAt,acknowledged:remoteBrief.acknowledged,acknowledgedAt:remoteBrief.acknowledgedAt}};
+                  }
+                }
+                const sameAttendance=JSON.stringify(op.attendanceByPlayer||{})===JSON.stringify(remote.attendanceByPlayer||{});
+                const sameBriefings=JSON.stringify(op.briefingsByPlayer||{})===JSON.stringify(nextBriefings);
+                if(sameAttendance&&sameBriefings)return op;
+                changed=true;
+                return {...op,attendanceByPlayer:remote.attendanceByPlayer||{},briefingsByPlayer:nextBriefings};
+              });
+            }else{
+              nextOps=refreshed.ops||[];
+              if(JSON.stringify(nextOps)!==JSON.stringify(current.ops||[]))changed=true;
+            }
+            const samePlayers=JSON.stringify(current.players||[])===JSON.stringify(players);
+            if(!samePlayers)changed=true;
+            return changed?{...current,ops:nextOps,players}:current;
+          });
+          setError('');
+        }catch(refreshError){
+          if(!cancelled)setError(refreshError.message||'Could not refresh live operation data.');
+        }finally{
+          refreshing=false;
+          if(pending&&!cancelled)scheduleRefresh();
+        }
+      },900);
+    };
+    const channel=supabase.channel(`operation-live-${clan.id}-${user.id}`)
+      .on('postgres_changes',{event:'*',schema:'public',table:'operations',filter:`clan_id=eq.${clan.id}`},scheduleRefresh)
+      .on('postgres_changes',{event:'*',schema:'public',table:'clan_members',filter:`clan_id=eq.${clan.id}`},payload=>{
+        const relevant=['callsign','primary_role','role','active','membership_status','user_id','clan_id'];
+        const changedFields=Object.keys(payload.new||{}).filter(key=>payload.new?.[key]!==payload.old?.[key]);
+        if(payload.eventType!=='UPDATE'||changedFields.some(key=>relevant.includes(key)))scheduleRefresh();
+      })
+      .on('postgres_changes',{event:'*',schema:'public',table:'roster_assignments'},scheduleRefresh)
+      .on('postgres_changes',{event:'*',schema:'public',table:'squads'},scheduleRefresh)
+      .on('postgres_changes',{event:'*',schema:'public',table:'strategy_phases'},scheduleRefresh)
+      .on('postgres_changes',{event:'*',schema:'public',table:'strategy_tasks'},scheduleRefresh)
+      .on('postgres_changes',{event:'*',schema:'public',table:'stage_maps'},scheduleRefresh)
+      .on('postgres_changes',{event:'*',schema:'public',table:'map_objects'},scheduleRefresh)
+      .on('postgres_changes',{event:'*',schema:'public',table:'briefings'},scheduleRefresh)
+      .on('postgres_changes',{event:'*',schema:'public',table:'briefing_receipts'},scheduleRefresh)
+      .on('postgres_changes',{event:'*',schema:'public',table:'aars'},scheduleRefresh)
+      .subscribe();
+    return ()=>{
+      cancelled=true;
+      if(timer)clearTimeout(timer);
+      supabase.removeChannel(channel);
+    };
+  },[clan?.id,clan?.role,loading,hydrated,user?.id]);
+
   async function createClan(name,tag){
     if(!supabase) {setClan({id:'demo-clan',name,tag,inviteCode:'demo1234',role:'commander',callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'});setNeedsOnboarding(false);return;}
     const {data:clanRow,error:clanError}=await supabase.from('clans').insert({name,tag,created_by:user.id}).select().single(); if(clanError) throw clanError;
