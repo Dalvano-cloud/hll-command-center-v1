@@ -14,6 +14,8 @@ Import the GitHub repository and deploy the main branch.
 
 Set the two environment variables above for Production (and Preview/Development when needed).
 
+Production fails closed when either Supabase value is missing; it will show a configuration error instead of loading demo data.
+
 After environment changes, redeploy the latest main commit.
 
 ## Supabase Auth
