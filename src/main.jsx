@@ -243,6 +243,9 @@ function useClanStore(user){
   const [inactiveMembership,setInactiveMembership]=useState(false);
   const [hydrated,setHydrated]=useState(false);
   const lastSyncedRef=useRef(null);
+  const syncQueueRef=useRef(Promise.resolve());
+  const latestDataRef=useRef(data);
+  latestDataRef.current=data;
 
   useEffect(()=>{
     let cancelled=false;
@@ -298,25 +301,33 @@ function useClanStore(user){
 
   useEffect(()=>{
     if(!clan || loading || !hydrated || pendingMembership || inactiveMembership) return;
+    const snapshot=data;
+    const clanSnapshot=clan;
+    const userSnapshot=user;
     const timer=setTimeout(async()=>{
-      if(!supabase){localStorage.setItem('hll-command-data',JSON.stringify(data));return;}
-      const canWriteWorkspace=['commander','co'].includes(clan.role);
-      const previous=lastSyncedRef.current;
-      const workspaceChanged=!previous||stableStringify(previous.data)!==stableStringify(data);
-      const playersChanged=!previous||stableStringify(previous.players||[])!==stableStringify(data.players||[]);
-      const opsToSync=(data.ops||[]).filter(op=>{
-        const old=previous?.ops?.find(item=>item.id===op.id);
-        return !previous||playersChanged||!old||stableStringify(old)!==stableStringify(op);
-      });
-      try{
-        if(canWriteWorkspace&&workspaceChanged){
-          const {error:upsertError}=await supabase.from('clan_app_state').upsert({clan_id:clan.id,data,updated_at:new Date().toISOString()},{onConflict:'clan_id'});
-          if(upsertError)throw upsertError;
-        }
-        for(const op of opsToSync) await syncOperationRelations({clanId:clan.id,user,role:clan.role,op,players:data.players||[]});
-        lastSyncedRef.current={data,ops:data.ops||[],players:data.players||[]};
-        setError('');
-      }catch(syncError){setError(syncError.message||String(syncError));}
+      if(!supabase){localStorage.setItem('hll-command-data',JSON.stringify(snapshot));return;}
+      const syncTask=async()=>{
+        if(stableStringify(snapshot)!==stableStringify(latestDataRef.current))return;
+        const canWriteWorkspace=['commander','co'].includes(clanSnapshot.role);
+        const previous=lastSyncedRef.current;
+        const workspaceChanged=!previous||stableStringify(previous.data)!==stableStringify(snapshot);
+        const playersChanged=!previous||stableStringify(previous.players||[])!==stableStringify(snapshot.players||[]);
+        const opsToSync=(snapshot.ops||[]).filter(op=>{
+          const old=previous?.ops?.find(item=>item.id===op.id);
+          return !previous||playersChanged||!old||stableStringify(old)!==stableStringify(op);
+        });
+        try{
+          if(canWriteWorkspace&&workspaceChanged){
+            const {error:upsertError}=await supabase.from('clan_app_state').upsert({clan_id:clanSnapshot.id,data:snapshot,updated_at:new Date().toISOString()},{onConflict:'clan_id'});
+            if(upsertError)throw upsertError;
+          }
+          for(const op of opsToSync) await syncOperationRelations({clanId:clanSnapshot.id,user:userSnapshot,role:clanSnapshot.role,op,players:snapshot.players||[]});
+          lastSyncedRef.current={data:snapshot,ops:snapshot.ops||[],players:snapshot.players||[]};
+          setError('');
+        }catch(syncError){setError(syncError.message||String(syncError));}
+      };
+      syncQueueRef.current=syncQueueRef.current.catch(()=>{}).then(syncTask);
+      await syncQueueRef.current;
     },900);
     return ()=>clearTimeout(timer);
   },[data,clan?.id,clan?.role,hydrated,pendingMembership,inactiveMembership,user?.id]);
@@ -330,7 +341,7 @@ function useClanStore(user){
   },[clan?.id]);
 
   useEffect(()=>{
-    if(!supabase||!clan?.id||loading||!hydrated||!user?.id)return;
+    if(!supabase||!clan?.id||loading||!hydrated||pendingMembership||inactiveMembership||!user?.id)return;
     let timer=null;
     let cancelled=false;
     let refreshing=false;
@@ -414,7 +425,7 @@ function useClanStore(user){
       if(timer)clearTimeout(timer);
       supabase.removeChannel(channel);
     };
-  },[clan?.id,clan?.role,loading,hydrated,user?.id]);
+  },[clan?.id,clan?.role,loading,hydrated,pendingMembership,inactiveMembership,user?.id]);
 
   async function createClan(name,tag){
     if(!supabase) {setClan({id:'demo-clan',name,tag,inviteCode:'demo1234',role:'commander',callsign:user.user_metadata?.name||user.email?.split('@')[0]||'Player'});setNeedsOnboarding(false);return;}
