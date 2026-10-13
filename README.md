@@ -52,11 +52,11 @@ Supabase Auth URL configuration must contain the final Vercel site URL and its c
 
 The live Supabase project already contains the current schema and hardening migrations. Do not run the old one-off `PRODUCTION-FIX.sql` against the production database unless you are deliberately rebuilding a fresh project.
 
-Database security is enforced with RLS and clan-scoped policies. The application has been tested for cross-clan isolation.
+Database security is enforced with RLS and clan-scoped policies. Cross-clan reads are isolated, and only a clan creator can insert that clan's initial Commander membership; joining by invite uses the pending-membership RPC.
 
 ## Verification
 
-Every push to `main` runs dependency installation, JSX syntax validation and the production build.
+Every push to `main` runs dependency installation, JSX syntax validation, the production build and a preview smoke test that checks the built HTML, JavaScript and CSS assets.
 
 Keep GitHub Actions green before treating a change as releasable.
 
