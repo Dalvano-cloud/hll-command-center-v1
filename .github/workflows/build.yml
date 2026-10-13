@@ -62,6 +62,10 @@ jobs:
           for (const asset of assets) {
             const assetResponse = await fetch(new URL(asset, base));
             assert.ok(assetResponse.ok, `Built asset failed: ${asset} (${assetResponse.status})`);
+            const contentType = assetResponse.headers.get('content-type') || '';
+            assert.match(contentType, asset.endsWith('.js') ? /javascript/ : /text\/css/, `Unexpected content type for ${asset}: ${contentType}`);
+            const body = await assetResponse.text();
+            assert.ok(body.length > 100, `Built asset is unexpectedly empty: ${asset}`);
           }
           console.log(`Production preview smoke test passed (${assets.length} assets)`);
           NODE
