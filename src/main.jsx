@@ -92,7 +92,7 @@ function stableStringify(value){
   });
 }
 
-async function syncOperationRelations({clanId,user,role,op,players}){
+async function syncOperationRelations({clanId,user,role,op,players,previousOp=null}){
   if(!supabase || !clanId || !op) return;
   const command=['commander','co'].includes(role);
   const isPlayerRole=['player','recruit','squad_lead'].includes(role);
@@ -112,9 +112,9 @@ async function syncOperationRelations({clanId,user,role,op,players}){
     const staleSquads=(dbSquads||[]).filter(x=>!desiredSquadNames.has(x.name));
 
     const squadIdByName=Object.fromEntries((dbSquads||[]).map(s=>[s.name,s.id]));
-    const {error:delAssign}=await supabase.from('roster_assignments').delete().eq('operation_id',opRow.id); if(delAssign) throw delAssign;
     // Only write real Supabase users from the current clan. Deduplicate by user_id so the
     // unique (operation_id,user_id) constraint can never be violated by duplicate UI rows.
+    // Upsert only changed assignment fields; never clear attendance just because command data changed.
     const {data:activeMembers,error:memberListError}=await supabase.from('clan_members').select('user_id').eq('clan_id',clanId).eq('active',true);
     if(memberListError) throw memberListError;
     const validUserIds=new Set((activeMembers||[]).map(m=>m.user_id));
@@ -123,11 +123,29 @@ async function syncOperationRelations({clanId,user,role,op,players}){
       const uid=p.memberUserId;
       if(uid && validUserIds.has(uid) && !uniquePlayers.has(uid)) uniquePlayers.set(uid,p);
     }
+    const {data:existingAssignments,error:existingAssignmentError}=await supabase.from('roster_assignments').select('id,user_id,squad_id,role,attendance,ready').eq('operation_id',opRow.id);
+    if(existingAssignmentError) throw existingAssignmentError;
+    const existingByUser=new Map((existingAssignments||[]).map(row=>[row.user_id,row]));
     const assignments=[...uniquePlayers.values()].map(p=>{
       const squad=(op.squads||[]).find(s=>(s.playerIds||[]).includes(p.id) || (s.playerIds||[]).includes(p.memberUserId));
       return {operation_id:opRow.id,squad_id:squad?squadIdByName[squad.name]||null:null,user_id:p.memberUserId,role:p.role||'Rifleman',attendance:(op.attendanceByPlayer||{})[p.id]||'maybe',ready:p.status==='ready'};
     });
-    if(assignments.length){ const {error}=await supabase.from('roster_assignments').insert(assignments); if(error) throw error; }
+    const changedAssignments=assignments.filter(a=>{
+      const old=existingByUser.get(a.user_id);
+      return !old || (old.squad_id||null)!==(a.squad_id||null) || (old.role||null)!==(a.role||null) || !!old.ready!==!!a.ready;
+    }).map(({attendance,...row})=>row);
+    if(changedAssignments.length){ const {error}=await supabase.from('roster_assignments').upsert(changedAssignments,{onConflict:'operation_id,user_id'}); if(error) throw error; }
+    // Attendance is written separately, only for a new assignment or an explicit state change.
+    // This protects a fresh player response from a stale command-side workspace snapshot.
+    const attendanceUpdates=assignments.filter(a=>{
+      const old=existingByUser.get(a.user_id);
+      const wasChanged=!!previousOp && ((previousOp.attendanceByPlayer||{})[a.user_id]||'maybe')!==a.attendance;
+      return (!old || wasChanged) && (!old || (old.attendance||'maybe')!==a.attendance);
+    }).map(a=>({operation_id:a.operation_id,user_id:a.user_id,attendance:a.attendance}));
+    if(attendanceUpdates.length){ const {error}=await supabase.from('roster_assignments').upsert(attendanceUpdates,{onConflict:'operation_id,user_id'}); if(error) throw error; }
+    const desiredUserIds=new Set(assignments.map(a=>a.user_id));
+    const staleAssignmentIds=(existingAssignments||[]).filter(a=>!desiredUserIds.has(a.user_id)).map(a=>a.id);
+    if(staleAssignmentIds.length){ const {error}=await supabase.from('roster_assignments').delete().in('id',staleAssignmentIds); if(error) throw error; }
 
     const {data:oldPhases}=await supabase.from('strategy_phases').select('id').eq('operation_id',opRow.id);
     if(oldPhases?.length){ const {error}=await supabase.from('strategy_tasks').delete().in('phase_id',oldPhases.map(x=>x.id)); if(error) throw error; }
@@ -163,23 +181,13 @@ async function syncOperationRelations({clanId,user,role,op,players}){
     }
     const staleSquadIds=staleSquads.map(x=>x.id);
     if(staleSquadIds.length){ const {error}=await supabase.from('squads').delete().in('id',staleSquadIds); if(error) throw error; }
-    const confirmed=(assignments||[]).filter(a=>a.attendance==='going').length;
-    const total=(assignments||[]).length;
-    const briefingList=Object.values(op.briefingsByPlayer||{}).filter(Boolean);
-    const published=briefingList.filter(b=>b?.published).length;
-    const {error:metricError}=await supabase.from('operations').update({attendance_total:total,attendance_confirmed:confirmed,briefing_total:briefingList.length,briefing_published:published,updated_at:new Date().toISOString()}).eq('id',opRow.id).eq('clan_id',clanId);
-    if(metricError) throw metricError;
-  } else if(isPlayerRole){
+    // Database triggers keep roster and briefing metrics authoritative.  } else if(isPlayerRole){
     const me=players.find(p=>p.memberUserId===user.id);
     if(me){
       const attendance=(op.attendanceByPlayer||{})[me.id]||'maybe';
       const {data:existing}=await supabase.from('roster_assignments').select('squad_id,role,ready').eq('operation_id',opRow.id).eq('user_id',user.id).maybeSingle();
       const {error}=await supabase.from('roster_assignments').upsert({operation_id:opRow.id,squad_id:existing?.squad_id||null,user_id:user.id,role:existing?.role||me.role||'Rifleman',attendance,ready:existing?.ready||false},{onConflict:'operation_id,user_id'}); if(error) throw error;
-      const {data:metrics,error:metricError}=await supabase.from('roster_assignments').select('attendance').eq('operation_id',opRow.id);
-      if(metricError) throw metricError;
-      const total=(metrics||[]).length, confirmed=(metrics||[]).filter(a=>a.attendance==='going').length;
-      const {error:opMetricError}=await supabase.from('operations').update({attendance_total:total,attendance_confirmed:confirmed,updated_at:new Date().toISOString()}).eq('id',opRow.id);
-      if(opMetricError) throw opMetricError;
+      // The database trigger updates operation attendance metrics from this row change.
     }
   }
 }
@@ -321,7 +329,10 @@ function useClanStore(user){
             const {error:upsertError}=await supabase.from('clan_app_state').upsert({clan_id:clanSnapshot.id,data:snapshot,updated_at:new Date().toISOString()},{onConflict:'clan_id'});
             if(upsertError)throw upsertError;
           }
-          for(const op of opsToSync) await syncOperationRelations({clanId:clanSnapshot.id,user:userSnapshot,role:clanSnapshot.role,op,players:snapshot.players||[]});
+          for(const op of opsToSync){
+            const previousOp=previous?.ops?.find(item=>item.id===op.id)||null;
+            await syncOperationRelations({clanId:clanSnapshot.id,user:userSnapshot,role:clanSnapshot.role,op,players:snapshot.players||[],previousOp});
+          }
           lastSyncedRef.current={data:snapshot,ops:snapshot.ops||[],players:snapshot.players||[]};
           setError('');
         }catch(syncError){setError(syncError.message||String(syncError));}
