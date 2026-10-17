@@ -1114,6 +1114,9 @@ function OperationAAR({op,setData}){const a=op.aarData||{}; function upd(p){setD
 
 function Input({label,value,onChange,placeholder}){return <label className="field"><span>{label}</span><input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}/></label>}
 
+function calendarLocalDate(value){const d=value instanceof Date?value:new Date(value);if(Number.isNaN(d.getTime()))return '';return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+function calendarLocalTime(value){const d=value instanceof Date?value:new Date(value);if(Number.isNaN(d.getTime()))return '';return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;}
+
 function Calendar({data,setData,clan,user}){
   const command=canCommand(clan);
   const [events,setEvents]=useState([]);
@@ -1155,8 +1158,8 @@ function Calendar({data,setData,clan,user}){
     setForm({
       title:e.title||'',
       event_type:e.event_type||'EVENT',
-      date:isNaN(start)?new Date().toISOString().slice(0,10):start.toISOString().slice(0,10),
-      time:isNaN(start)?'20:00':start.toISOString().slice(11,16),
+      date:isNaN(start)?calendarLocalDate(new Date()):calendarLocalDate(start),
+      time:isNaN(start)?'20:00':calendarLocalTime(start),
       duration:String(Math.max(30,Math.round((end-start)/60000))),
       location:e.location||'',
       notes:e.notes||'',
@@ -1214,8 +1217,8 @@ function Calendar({data,setData,clan,user}){
       <div className="weekhead">{['MON','TUE','WED','THU','FRI','SAT','SUN'].map(d=><div key={d}>{d}</div>)}</div>
       <div className="calendar-grid">
         {events.map(e=>{const d=new Date(e.starts_at);const linked=operations.find(o=>o.id===e.operation_id);return <div className="event card" key={e.id}>
-          <div className="event-date">{isNaN(d)?'—':d.toISOString().slice(5,10)} · {isNaN(d)?'—':d.toISOString().slice(11,16)}</div>
-          <b>{e.title}</b><small>{e.location||e.notes||linked?e.location||e.notes||`Operation #${linked?.number}`: 'Clan event'}</small>
+          <div className="event-date">{isNaN(d)?'—':calendarLocalDate(d).slice(5)} · {isNaN(d)?'—':calendarLocalTime(d)}</div>
+          <b>{e.title}</b><small>{e.location||e.notes||(linked?`Operation #${linked.number}`:'Clan event')}</small>
           <div><Tag tone={e.event_type==='MATCH'?'red':'yellow'}>{e.event_type}</Tag>{linked&&<Tag tone={linked.status==='ready'||linked.status==='active'?'green':''}>OP #{linked.number}</Tag>}</div>
           {command&&<div className="actions"><button className="btn mini-action" onClick={()=>startEdit(e)}>EDIT</button><button className="btn mini-action" onClick={()=>remove(e.id)} disabled={busy}>DELETE</button></div>}
         </div>})}
@@ -1224,7 +1227,7 @@ function Calendar({data,setData,clan,user}){
     <div className="card section">
       <div className="section-head"><h3>Upcoming events</h3><span>{loading?'LOADING…':`${events.length} EVENTS`}</span></div>
       <div className="table-scroll"><table className="table"><thead><tr><th>DATE</th><th>EVENT</th><th>TYPE</th><th>LINK</th><th>ACTION</th></tr></thead><tbody>
-        {events.map(e=>{const d=new Date(e.starts_at);const linked=operations.find(o=>o.id===e.operation_id);return <tr key={e.id}><td>{isNaN(d)?'—':`${d.toISOString().slice(0,10)} · ${d.toISOString().slice(11,16)}`}</td><td><b>{e.title}</b><small>{e.location||e.notes||''}</small></td><td><Tag tone={e.event_type==='MATCH'?'red':'yellow'}>{e.event_type}</Tag></td><td>{linked?<b>#{linked.number}</b>:<span className="muted">CLAN</span>}</td><td>{command?<div className="button-row"><button className="btn mini-action" onClick={()=>startEdit(e)}>EDIT</button><button className="btn mini-action" onClick={()=>remove(e.id)} disabled={busy}>DELETE</button></div>:<span className="muted">READ ONLY</span>}</td></tr>})}
+        {events.map(e=>{const d=new Date(e.starts_at);const linked=operations.find(o=>o.id===e.operation_id);return <tr key={e.id}><td>{isNaN(d)?'—':`${calendarLocalDate(d)} · ${calendarLocalTime(d)}`}</td><td><b>{e.title}</b><small>{e.location||e.notes||''}</small></td><td><Tag tone={e.event_type==='MATCH'?'red':'yellow'}>{e.event_type}</Tag></td><td>{linked?<b>#{linked.number}</b>:<span className="muted">CLAN</span>}</td><td>{command?<div className="button-row"><button className="btn mini-action" onClick={()=>startEdit(e)}>EDIT</button><button className="btn mini-action" onClick={()=>remove(e.id)} disabled={busy}>DELETE</button></div>:<span className="muted">READ ONLY</span>}</td></tr>})}
         {!events.length&&!loading&&<tr><td colSpan="5"><div className="empty-state">No calendar events yet.</div></td></tr>}
       </tbody></table></div>
     </div>
