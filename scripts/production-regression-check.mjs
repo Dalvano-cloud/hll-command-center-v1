@@ -14,6 +14,7 @@ const sync = section('async function syncOperationRelations(', 'async function l
 assert.match(sync, /\}\s*else if\s*\(isPlayerRole\)\s*\{/, 'Player role sync branch must remain active.');
 assert.doesNotMatch(sync, /authoritative\.[^\n]*\}\s*else if\s*\(isPlayerRole\)/, 'Player role branch must not be swallowed by a line comment.');
 assert.doesNotMatch(sync, /from\(['"]roster_assignments['"]\)\.delete\(\)\.eq\(['"]operation_id['"],\s*opRow\.id\)/, 'Operation sync must not clear every roster assignment.');
+assert.match(sync, /filter\(a=>!validUserIds\.has\(a\.user_id\)\)/, 'Roster cleanup must only remove users who are no longer active in the clan.');
 assert.match(sync, /ignoreDuplicates:\s*true/, 'New assignments must not overwrite an assignment created concurrently by a player.');
 assert.match(sync, /update\(\{attendance:\s*a\.attendance\}\)/, 'Explicit attendance changes must be persisted separately.');
 assert.match(sync, /currentInDatabase!==expected/, 'Attendance writes must use an optimistic concurrency guard.');
