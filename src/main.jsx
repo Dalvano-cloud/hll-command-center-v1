@@ -96,6 +96,9 @@ async function syncOperationRelations({clanId,user,role,op,players,previousOp=nu
   if(!supabase || !clanId || !op) return;
   const command=['commander','co'].includes(role);
   const isPlayerRole=['player','recruit','squad_lead'].includes(role);
+  const briefingContent=items=>Object.fromEntries(Object.entries(items||{}).map(([id,b])=>[id,{title:b?.title||'',body:b?.body||'',checklist:b?.checklist||[],published:!!b?.published,publishedAt:b?.publishedAt||null}]));
+  const planSignature=value=>stableStringify({squads:value?.squads||[],strategyData:value?.strategyData||{},stageMaps:value?.stageMaps||[],briefings:briefingContent(value?.briefingsByPlayer),aarData:value?.aarData||{}});
+  const commandPlanningChanged=!previousOp||planSignature(previousOp)!==planSignature(op);
   const number=Number(op.id);
   if(!Number.isFinite(number)) return;
   const scheduledAt=op.date ? `${op.date}T${op.time||'20:00'}:00` : null;
@@ -106,7 +109,7 @@ async function syncOperationRelations({clanId,user,role,op,players,previousOp=nu
 
   if(command){
     const squadRows=(op.squads||[]).map(s=>({operation_id:opRow.id,name:s.name,color:s.color||null,squad_lead_id:players.find(p=>p.id===s.lead||p.memberUserId===s.lead||p.name===s.lead)?.memberUserId||null}));
-    if(squadRows.length){ const {error}=await supabase.from('squads').upsert(squadRows,{onConflict:'operation_id,name'}); if(error) throw error; }
+    if(commandPlanningChanged&&squadRows.length){ const {error}=await supabase.from('squads').upsert(squadRows,{onConflict:'operation_id,name'}); if(error) throw error; }
     const {data:dbSquads,error:sqErr}=await supabase.from('squads').select('id,name,squad_lead_id').eq('operation_id',opRow.id); if(sqErr) throw sqErr;
     const desiredSquadNames=new Set(squadRows.map(x=>x.name));
     const staleSquads=(dbSquads||[]).filter(x=>!desiredSquadNames.has(x.name));
@@ -165,6 +168,7 @@ async function syncOperationRelations({clanId,user,role,op,players,previousOp=nu
     const staleAssignmentIds=(existingAssignments||[]).filter(a=>!validUserIds.has(a.user_id)).map(a=>a.id);
     if(staleAssignmentIds.length){ const {error}=await supabase.from('roster_assignments').delete().in('id',staleAssignmentIds); if(error) throw error; }
 
+    if(commandPlanningChanged){
     const {data:oldPhases}=await supabase.from('strategy_phases').select('id').eq('operation_id',opRow.id);
     if(oldPhases?.length){ const {error}=await supabase.from('strategy_tasks').delete().in('phase_id',oldPhases.map(x=>x.id)); if(error) throw error; }
     { const {error}=await supabase.from('strategy_phases').delete().eq('operation_id',opRow.id); if(error) throw error; }
@@ -199,6 +203,7 @@ async function syncOperationRelations({clanId,user,role,op,players,previousOp=nu
     }
     const staleSquadIds=staleSquads.map(x=>x.id);
     if(staleSquadIds.length){ const {error}=await supabase.from('squads').delete().in('id',staleSquadIds); if(error) throw error; }
+    }
     // Database triggers keep roster and briefing metrics authoritative.
   } else if(isPlayerRole){
     const me=players.find(p=>p.memberUserId===user.id);
