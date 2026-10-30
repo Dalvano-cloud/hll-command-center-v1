@@ -507,7 +507,7 @@ function ResetPassword(){
   const navigate=useNavigate();
   async function save(e){
     e.preventDefault(); setError(''); setMessage('');
-    if(password.length<8){setError('Password must be at least 8 characters.');return;}
+    if(password.length<12){setError('New password must be at least 12 characters.');return;}
     if(password!==confirm){setError('Passwords do not match.');return;}
     if(!supabase){setError('Supabase authentication is not available.');return;}
     setBusy(true);
@@ -516,7 +516,7 @@ function ResetPassword(){
     else { setMessage('Password updated. You can sign in with your new password.'); setPassword(''); setConfirm(''); setTimeout(()=>navigate('/'),700); }
     setBusy(false);
   }
-  return <div className="login"><div className="login-card"><div className="brand large">HLL // COMMAND<small>CLAN OPERATIONS HUB</small></div><div className="eyebrow">ACCOUNT RECOVERY</div><h1>RESET PASSWORD</h1><p>Choose a new password for your command account.</p><form onSubmit={save} className="stack"><label>New password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} minLength={8} required autoComplete="new-password"/></label><label>Confirm password<input type="password" value={confirm} onChange={e=>setConfirm(e.target.value)} minLength={8} required autoComplete="new-password"/></label>{error&&<div className="error">{error}</div>}{message&&<div className="callout">{message}</div>}<button className="btn primary" disabled={busy}>{busy?'SAVING…':'SAVE NEW PASSWORD'} <KeyRound size={15}/></button></form></div></div>
+  return <div className="login"><div className="login-card"><div className="brand large">HLL // COMMAND<small>CLAN OPERATIONS HUB</small></div><div className="eyebrow">ACCOUNT RECOVERY</div><h1>RESET PASSWORD</h1><p>Choose a new password for your command account.</p><form onSubmit={save} className="stack"><label>New password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} minLength={12} required autoComplete="new-password"/></label><label>Confirm password<input type="password" value={confirm} onChange={e=>setConfirm(e.target.value)} minLength={12} required autoComplete="new-password"/></label>{error&&<div className="error">{error}</div>}{message&&<div className="callout">{message}</div>}<button className="btn primary" disabled={busy}>{busy?'SAVING…':'SAVE NEW PASSWORD'} <KeyRound size={15}/></button></form></div></div>
 }
 
 function AuthenticatedApp({session}){
@@ -540,7 +540,7 @@ function Login(){
   const [email,setEmail]=useState(''); const [password,setPassword]=useState(''); const [busy,setBusy]=useState(false); const [error,setError]=useState(''); const [resetSent,setResetSent]=useState(false);
   const navigate=useNavigate();
   async function submit(e){e.preventDefault();setBusy(true);setError(''); if(!supabase){alert('Demo mode: configure Supabase to enable accounts.');setBusy(false);return;} const {error}=await supabase.auth.signInWithPassword({email,password}); if(error)setError(error.message); setBusy(false)}
-  async function signup(){ if(!supabase){setError('Connect Supabase first.');return;} if(!email||!password){setError('Enter email and password first.');return;} setBusy(true); setError(''); const {error}=await supabase.auth.signUp({email,password,options:{data:{name:email.split('@')[0]}}}); if(error)setError(error.message); else setError('Account created. Check your email if confirmation is required, then sign in.'); setBusy(false) }
+  async function signup(){ if(!supabase){setError('Connect Supabase first.');return;} if(!email||!password){setError('Enter email and password first.');return;} if(password.length<12){setError('New account passwords must be at least 12 characters.');return;} setBusy(true); setError(''); const {error}=await supabase.auth.signUp({email,password,options:{data:{name:email.split('@')[0]}}}); if(error)setError(error.message); else setError('Account created. Check your email if confirmation is required, then sign in.'); setBusy(false) }
   async function forgotPassword(){
     if(!supabase){setError('Connect Supabase first.');return;}
     if(!email){setError('Enter your email address first.');return;}
