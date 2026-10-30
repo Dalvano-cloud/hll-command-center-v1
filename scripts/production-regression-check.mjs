@@ -12,7 +12,7 @@ function section(startText, endText) {
 
 const sync = section('async function syncOperationRelations(', 'async function loadRelationalOperations(');
 assert.match(sync, /\}\s*else if\s*\(isPlayerRole\)\s*\{/, 'Player role sync branch must remain active.');
-assert.doesNotMatch(sync, /authoritative\.\s*\}\s*else if\s*\(isPlayerRole\)/, 'Player role branch must not be swallowed by a line comment.');
+assert.doesNotMatch(sync, /authoritative\.[^\n]*\}\s*else if\s*\(isPlayerRole\)/, 'Player role branch must not be swallowed by a line comment.');
 assert.doesNotMatch(sync, /from\(['"]roster_assignments['"]\)\.delete\(\)\.eq\(['"]operation_id['"],\s*opRow\.id\)/, 'Operation sync must not clear every roster assignment.');
 assert.match(sync, /ignoreDuplicates:\s*true/, 'New assignments must not overwrite an assignment created concurrently by a player.');
 assert.match(sync, /update\(\{attendance:\s*a\.attendance\}\)/, 'Explicit attendance changes must be persisted separately.');
