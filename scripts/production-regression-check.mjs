@@ -19,10 +19,19 @@ assert.match(sync, /ignoreDuplicates:\s*true/, 'New assignments must not overwri
 assert.match(sync, /update\(\{attendance:\s*a\.attendance\}\)/, 'Explicit attendance changes must be persisted separately.');
 assert.match(sync, /currentInDatabase!==expected/, 'Attendance writes must use an optimistic concurrency guard.');
 assert.match(sync, /update\(\{squad_id:a\.squad_id,role:a\.role,ready:a\.ready\}\)/, 'Roster changes must not overwrite attendance.');
+assert.match(sync, /const commandPlanningChanged=!previousOp\|\|planSignature\(previousOp\)!==planSignature\(op\)/, 'Command planning writes must be skipped for attendance-only changes.');
+assert.match(sync, /if\(commandPlanningChanged\)\{\s*const \{data:oldPhases\}/, 'Destructive plan rewrites must be behind the planning-change guard.');
+assert.match(sync, /const hasOperationChanges=Object\.keys\(baseRow\)\.length>2/, 'Operation rows should only be written when actual operation fields changed.');
+assert.match(sync, /from\('operations'\)\.select\('id,number'\)\.eq\('clan_id',clanId\)\.eq\('number',number\)/, 'Attendance-only updates must read the operation ID instead of updating operation metadata.');
+assert.match(sync, /const toScheduledAt=value=>/, 'Operation schedule timestamps must be normalized from local date and time.');
+
 
 const calendar = section('function calendarLocalDate(', 'function Roster(');
 assert.match(calendar, /function calendarLocalDate\(/, 'Calendar must have local date formatting.');
 assert.match(calendar, /function calendarLocalTime\(/, 'Calendar must have local time formatting.');
+const operationLoad = section('async function loadRelationalOperations(', 'function buildMemberPlayers(');
+assert.match(operationLoad, /calendarLocalDate\(new Date\(row\.scheduled_at\)\)/, 'Operation dates must be loaded in local time.');
+assert.match(operationLoad, /calendarLocalTime\(new Date\(row\.scheduled_at\)\)/, 'Operation times must be loaded in local time.');
 assert.doesNotMatch(calendar, /start\.toISOString\(\)\.slice\(11,16\)/, 'Calendar edit form must not convert a local time to UTC text.');
 assert.match(calendar, /linked\?\x60Operation #\$\{linked\.number\}\x60:'Clan event'/, 'Calendar event description fallback must handle linked operations correctly.');
 
