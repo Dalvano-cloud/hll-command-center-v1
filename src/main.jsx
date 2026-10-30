@@ -160,8 +160,9 @@ async function syncOperationRelations({clanId,user,role,op,players,previousOp=nu
       const {error}=await query;
       if(error) throw error;
     }
-    const desiredUserIds=new Set(assignments.map(a=>a.user_id));
-    const staleAssignmentIds=(existingAssignments||[]).filter(a=>!desiredUserIds.has(a.user_id)).map(a=>a.id);
+    // Only remove assignments for users who are no longer active in this clan.
+    // A temporarily stale client roster must not erase another active player's attendance.
+    const staleAssignmentIds=(existingAssignments||[]).filter(a=>!validUserIds.has(a.user_id)).map(a=>a.id);
     if(staleAssignmentIds.length){ const {error}=await supabase.from('roster_assignments').delete().in('id',staleAssignmentIds); if(error) throw error; }
 
     const {data:oldPhases}=await supabase.from('strategy_phases').select('id').eq('operation_id',opRow.id);
