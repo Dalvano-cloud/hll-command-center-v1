@@ -36,6 +36,8 @@ jobs:
           }
           console.log('All function declaration chunks parse independently');
           NODE
+      - name: Production regression checks
+        run: node scripts/production-regression-check.mjs
       - name: Build production bundle
         run: npm run build
       - name: Smoke test built app
