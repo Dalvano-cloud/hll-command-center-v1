@@ -66,7 +66,7 @@ function makeOperation(op={}, index=0){
   const baseId=op.id || String(40+index+1).padStart(3,'0');
   return {
     id:baseId, dbId:op.dbId||null, name:op.name||'New Operation', opponent:op.opponent||'TBD', map:op.map||'TBD', mode:op.mode||'Warfare',
-    date:op.date||new Date().toISOString().slice(0,10), time:op.time||'20:00', status:op.status||'draft',
+    date:op.date||calendarLocalDate(new Date()), time:op.time||'20:00', status:op.status||'draft',
     strategy:op.strategy||'draft', briefing:op.briefing||'0/0', attendance:op.attendance||'0/0', commander:op.commander||'Command',
     attendanceByPlayer:op.attendanceByPlayer||{}, squads:op.squads||[
       {id:'alpha',name:'Alpha',lead:'',playerIds:[]},{id:'bravo',name:'Bravo',lead:'',playerIds:[]},
@@ -99,12 +99,40 @@ async function syncOperationRelations({clanId,user,role,op,players,previousOp=nu
   const briefingContent=items=>Object.fromEntries(Object.entries(items||{}).map(([id,b])=>[id,{title:b?.title||'',body:b?.body||'',checklist:b?.checklist||[],published:!!b?.published,publishedAt:b?.publishedAt||null}]));
   const planSignature=value=>stableStringify({squads:value?.squads||[],strategyData:value?.strategyData||{},stageMaps:value?.stageMaps||[],briefings:briefingContent(value?.briefingsByPlayer),aarData:value?.aarData||{}});
   const commandPlanningChanged=!previousOp||planSignature(previousOp)!==planSignature(op);
+  const strategyChanged=!previousOp||stableStringify(previousOp.strategyData||{})!==stableStringify(op.strategyData||{});
   const number=Number(op.id);
   if(!Number.isFinite(number)) return;
-  const scheduledAt=op.date ? `${op.date}T${op.time||'20:00'}:00` : null;
-  const baseRow={clan_id:clanId,number,name:op.name||'Untitled Operation',opponent:op.opponent||'',map_name:op.map||'',game_mode:op.mode||'Warfare',side:op.side||null,scheduled_at:scheduledAt,status:op.status||'draft',commander_id:players.find(p=>p.name===op.commander)?.memberUserId||user.id,strategy_status:(!!op.strategyData?.intent?.trim()&&!!op.strategyData?.orders?.trim()&&(op.strategyData?.phases||[]).length>=4&&(op.strategyData?.phases||[]).every(p=>!!p.intent?.trim()&&(p.tasks||[]).some(task=>String(task).trim())))?'ready':'draft',commander_intent:op.strategyData?.intent||'',global_orders:op.strategyData?.orders||'',created_by:user.id,updated_at:new Date().toISOString()};
-  const {data:opRow,error:opError}=await supabase.from('operations').upsert(baseRow,{onConflict:'clan_id,number'}).select('id,number').single();
-  if(opError) throw opError;
+  const toScheduledAt=value=>{
+    if(!value?.date)return null;
+    const date=new Date(`${value.date}T${value.time||'20:00'}:00`);
+    return Number.isNaN(date.getTime())?null:date.toISOString();
+  };
+  const scheduledAt=toScheduledAt(op);
+  const nextCore={name:op.name||'Untitled Operation',opponent:op.opponent||'',map_name:op.map||'',game_mode:op.mode||'Warfare',side:op.side||null,scheduled_at:scheduledAt,status:op.status||'draft'};
+  const previousCore=previousOp?{name:previousOp.name||'Untitled Operation',opponent:previousOp.opponent||'',map_name:previousOp.map||'',game_mode:previousOp.mode||'Warfare',side:previousOp.side||null,scheduled_at:toScheduledAt(previousOp),status:previousOp.status||'draft'}:null;
+  const baseRow={clan_id:clanId,number};
+  for(const [key,value] of Object.entries(nextCore)){
+    if(!previousCore||stableStringify(previousCore[key])!==stableStringify(value))baseRow[key]=value;
+  }
+  if(!previousOp||previousOp.commander!==op.commander)baseRow.commander_id=players.find(p=>p.name===op.commander)?.memberUserId||user.id;
+  if(strategyChanged){
+    baseRow.strategy_status=(!!op.strategyData?.intent?.trim()&&!!op.strategyData?.orders?.trim()&&(op.strategyData?.phases||[]).length>=4&&(op.strategyData?.phases||[]).every(p=>!!p.intent?.trim()&&(p.tasks||[]).some(task=>String(task).trim())))?'ready':'draft';
+    baseRow.commander_intent=op.strategyData?.intent||'';
+    baseRow.global_orders=op.strategyData?.orders||'';
+  }
+  if(!previousOp)baseRow.created_by=user.id;
+  const hasOperationChanges=Object.keys(baseRow).length>2;
+  let opRow;
+  if(hasOperationChanges){
+    baseRow.updated_at=new Date().toISOString();
+    const {data:row,error:opError}=await supabase.from('operations').upsert(baseRow,{onConflict:'clan_id,number'}).select('id,number').single();
+    if(opError) throw opError;
+    opRow=row;
+  }else{
+    const {data:row,error:opError}=await supabase.from('operations').select('id,number').eq('clan_id',clanId).eq('number',number).single();
+    if(opError) throw opError;
+    opRow=row;
+  }
   if(!opRow) return;
 
   if(command){
@@ -253,8 +281,8 @@ async function loadRelationalOperations(clanId,baseData,members){
     const playerSquadById=Object.fromEntries(assigns.map(a=>[a.user_id,squadByOp[row.id]?.find(s=>s.id===a.squad_id)?.name||'Unassigned']));
     const phases=(phaseByOp[row.id]||[]).map(p=>({...p,id:`p${p.phase_no}`,no:p.phase_no,name:p.title,intent:p.summary||'',tasks:tasksByPhase[p.id]||[]}));
     const stageMaps=(mapByOp[row.id]||[]).map(m=>({phaseNo:m.phase_no,name:m.name,mapImageUrl:m.map_image_url,version:m.version,published:m.published,markers:markersByMap[m.id]||[]}));
-    const date=row.scheduled_at?new Date(row.scheduled_at).toISOString().slice(0,10):new Date().toISOString().slice(0,10);
-    const time=row.scheduled_at?new Date(row.scheduled_at).toISOString().slice(11,16):'20:00';
+    const date=row.scheduled_at?calendarLocalDate(new Date(row.scheduled_at)):calendarLocalDate(new Date());
+    const time=row.scheduled_at?calendarLocalTime(new Date(row.scheduled_at)):'20:00';
     const commander=memberById[row.commander_id]?.name||'Command';
     return makeOperation({id:String(row.number).padStart(3,'0'),dbId:row.id,name:row.name,opponent:row.opponent,map:row.map_name,mode:row.game_mode,date,time,status:row.status,strategy:row.strategy_status,attendance:`${row.attendance_confirmed||0}/${row.attendance_total||0}`,briefing:`${row.briefing_published||0}/${row.briefing_total||0}`,commander,attendanceByPlayer,squads,strategyData:{intent:row.commander_intent||'',orders:row.global_orders||'',phases:phases.length?phases:DEFAULT_PHASES.map(p=>({...p,tasks:[]}))},stageMaps:stageMaps.length?stageMaps:DEFAULT_PHASES.map(p=>({phaseNo:p.no,name:p.name,markers:[]})),briefingsByPlayer:briefByOp[row.id]||{},aarData:aarByOp[row.id]||{}},i);
   });
@@ -304,7 +332,7 @@ function useClanStore(user){
       if(eventError){ if(!cancelled){setError(eventError.message);setLoading(false);} return; }
       const cloudEvents=(eventRows||[]).map(e=>{
         const d=new Date(e.starts_at);
-        return {id:e.id,title:e.title,type:e.event_type,date:isNaN(d)?'':d.toISOString().slice(0,10),time:isNaN(d)?'':d.toISOString().slice(11,16),meta:e.location||e.notes||'Clan event',status:'open',attendance:'0/0',operationId:e.operation_id||null,endsAt:e.ends_at||null};
+        return {id:e.id,title:e.title,type:e.event_type,date:isNaN(d)?'':calendarLocalDate(d),time:isNaN(d)?'':calendarLocalTime(d),meta:e.location||e.notes||'Clan event',status:'open',attendance:'0/0',operationId:e.operation_id||null,endsAt:e.ends_at||null};
       });
       const blankWorkspace={...seed,ops:[],events:cloudEvents,players:cloudPlayers,briefings:{},wiki:[],aar:{},strategy:{name:'',intent:'',orders:''}};
       let base=blankWorkspace;
@@ -858,7 +886,7 @@ function Operations({data,setData,clan,user}){
   const [creating,setCreating]=useState(false);
   const [createBusy,setCreateBusy]=useState(false);
   const [createError,setCreateError]=useState('');
-  const [draft,setDraft]=useState({name:'',opponent:'',map:'',mode:'Warfare',date:new Date().toISOString().slice(0,10),time:'20:00'});
+  const [draft,setDraft]=useState({name:'',opponent:'',map:'',mode:'Warfare',date:calendarLocalDate(new Date()),time:'20:00'});
   async function create(){
     if(!command || !draft.name.trim()||!draft.map.trim()||createBusy) return;
     setCreateBusy(true);setCreateError('');
@@ -1160,7 +1188,7 @@ function Calendar({data,setData,clan,user}){
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [editing,setEditing]=useState(null);
-  const [form,setForm]=useState({title:'',event_type:'TRAINING',date:new Date().toISOString().slice(0,10),time:'20:00',duration:'90',location:'',notes:'',operation_id:''});
+  const [form,setForm]=useState({title:'',event_type:'TRAINING',date:calendarLocalDate(new Date()),time:'20:00',duration:'90',location:'',notes:'',operation_id:''});
 
   async function load(){
     if(!supabase||!clan?.id){setEvents((data.events||[]).map(e=>({id:e.id,title:e.title,event_type:e.type,starts_at:`${e.date}T${e.time}:00`,ends_at:null,location:e.meta||'',notes:'',operation_id:null})));setLoading(false);return;}
