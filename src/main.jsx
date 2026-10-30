@@ -130,19 +130,36 @@ async function syncOperationRelations({clanId,user,role,op,players,previousOp=nu
       const squad=(op.squads||[]).find(s=>(s.playerIds||[]).includes(p.id) || (s.playerIds||[]).includes(p.memberUserId));
       return {operation_id:opRow.id,squad_id:squad?squadIdByName[squad.name]||null:null,user_id:p.memberUserId,role:p.role||'Rifleman',attendance:(op.attendanceByPlayer||{})[p.id]||'maybe',ready:p.status==='ready'};
     });
-    const changedAssignments=assignments.filter(a=>{
+    // Insert only missing rows. ignoreDuplicates prevents racing with a player's own attendance upsert.
+    const newAssignments=assignments.filter(a=>!existingByUser.has(a.user_id));
+    if(newAssignments.length){
+      const {error}=await supabase.from('roster_assignments').upsert(newAssignments,{onConflict:'operation_id,user_id',ignoreDuplicates:true});
+      if(error) throw error;
+    }
+    // Update squad / role / readiness without touching attendance on existing rows.
+    for(const a of assignments){
       const old=existingByUser.get(a.user_id);
-      return !old || (old.squad_id||null)!==(a.squad_id||null) || (old.role||null)!==(a.role||null) || !!old.ready!==!!a.ready;
-    }).map(({attendance,...row})=>row);
-    if(changedAssignments.length){ const {error}=await supabase.from('roster_assignments').upsert(changedAssignments,{onConflict:'operation_id,user_id'}); if(error) throw error; }
-    // Attendance is written separately, only for a new assignment or an explicit state change.
-    // This protects a fresh player response from a stale command-side workspace snapshot.
-    const attendanceUpdates=assignments.filter(a=>{
+      if(!old) continue;
+      const rosterChanged=(old.squad_id||null)!==(a.squad_id||null)||(old.role||null)!==(a.role||null)||!!old.ready!==!!a.ready;
+      if(!rosterChanged) continue;
+      const {error}=await supabase.from('roster_assignments').update({squad_id:a.squad_id,role:a.role,ready:a.ready}).eq('id',old.id).eq('operation_id',opRow.id);
+      if(error) throw error;
+    }
+    // Write attendance only when this operation's workspace explicitly changed it since the previous snapshot.
+    // Optimistic compare-and-set prevents a stale command snapshot overwriting a newer player response.
+    const previousAttendance=previousOp?.attendanceByPlayer||{};
+    for(const a of assignments){
       const old=existingByUser.get(a.user_id);
-      const wasChanged=!!previousOp && ((previousOp.attendanceByPlayer||{})[a.user_id]||'maybe')!==a.attendance;
-      return (!old || wasChanged) && (!old || (old.attendance||'maybe')!==a.attendance);
-    }).map(a=>({operation_id:a.operation_id,user_id:a.user_id,attendance:a.attendance}));
-    if(attendanceUpdates.length){ const {error}=await supabase.from('roster_assignments').upsert(attendanceUpdates,{onConflict:'operation_id,user_id'}); if(error) throw error; }
+      if(!old) continue;
+      const expected=(previousAttendance[a.user_id]||'maybe');
+      const changedInWorkspace=!!previousOp && expected!==a.attendance;
+      const currentInDatabase=old.attendance||'maybe';
+      if(!changedInWorkspace||currentInDatabase===a.attendance||currentInDatabase!==expected) continue;
+      let query=supabase.from('roster_assignments').update({attendance:a.attendance}).eq('id',old.id).eq('operation_id',opRow.id);
+      query=old.attendance===null?query.is('attendance',null):query.eq('attendance',old.attendance);
+      const {error}=await query;
+      if(error) throw error;
+    }
     const desiredUserIds=new Set(assignments.map(a=>a.user_id));
     const staleAssignmentIds=(existingAssignments||[]).filter(a=>!desiredUserIds.has(a.user_id)).map(a=>a.id);
     if(staleAssignmentIds.length){ const {error}=await supabase.from('roster_assignments').delete().in('id',staleAssignmentIds); if(error) throw error; }
@@ -181,7 +198,8 @@ async function syncOperationRelations({clanId,user,role,op,players,previousOp=nu
     }
     const staleSquadIds=staleSquads.map(x=>x.id);
     if(staleSquadIds.length){ const {error}=await supabase.from('squads').delete().in('id',staleSquadIds); if(error) throw error; }
-    // Database triggers keep roster and briefing metrics authoritative.  } else if(isPlayerRole){
+    // Database triggers keep roster and briefing metrics authoritative.
+  } else if(isPlayerRole){
     const me=players.find(p=>p.memberUserId===user.id);
     if(me){
       const attendance=(op.attendanceByPlayer||{})[me.id]||'maybe';
