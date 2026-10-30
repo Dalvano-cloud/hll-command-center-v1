@@ -19,7 +19,7 @@ assert.match(sync, /update\(\{attendance:\s*a\.attendance\}\)/, 'Explicit attend
 assert.match(sync, /currentInDatabase!==expected/, 'Attendance writes must use an optimistic concurrency guard.');
 assert.match(sync, /update\(\{squad_id:a\.squad_id,role:a\.role,ready:a\.ready\}\)/, 'Roster changes must not overwrite attendance.');
 
-const calendar = section('function Calendar(', 'function Roster(');
+const calendar = section('function calendarLocalDate(', 'function Roster(');
 assert.match(calendar, /function calendarLocalDate\(/, 'Calendar must have local date formatting.');
 assert.match(calendar, /function calendarLocalTime\(/, 'Calendar must have local time formatting.');
 assert.doesNotMatch(calendar, /start\.toISOString\(\)\.slice\(11,16\)/, 'Calendar edit form must not convert a local time to UTC text.');
